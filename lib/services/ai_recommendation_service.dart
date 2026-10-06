@@ -1,13 +1,12 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_ai/firebase_ai.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 import '../models.dart';
 
 /// Calls Gemini (via Firebase AI Logic — free Gemini Developer API tier,
 /// no Cloud Function or Blaze plan needed) to pick and explain the best
 /// restaurant matches for a user, on top of the app's existing rule-based
-/// MatchingEngine scoring.
+/// MatchingEngine scoring.flutter yu
 ///
 /// The existing MatchingEngine already narrows/scores the full list —
 /// this only re-ranks and explains the top candidates it's handed, so a
@@ -16,7 +15,7 @@ class AiRecommendationService {
   static GenerativeModel? _model;
 
   static GenerativeModel _getModel() {
-    _model ??= FirebaseAI.googleAI(appCheck: FirebaseAppCheck.instance).generativeModel(
+    _model ??= FirebaseAI.googleAI().generativeModel(
       model: 'gemini-2.0-flash',
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
