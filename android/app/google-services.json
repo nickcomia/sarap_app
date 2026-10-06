@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "34145947868",
+    "project_id": "sarap-app-51b8a",
+    "storage_bucket": "sarap-app-51b8a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:34145947868:android:8ba0eb6d178652d4e3e419",
+        "android_client_info": {
+          "package_name": "com.example.sarap_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "34145947868-9607tmjkjht15d6f4he1srni3r0dth6s.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.sarap_app",
+            "certificate_hash": "dcc4a9742b2e90e0ab1fa2198492cd7408bdbde8"
+          }
+        },
+        {
+          "client_id": "34145947868-1bfc6unbtfdrldrdga2ac4hmiu6801uv.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBaJauS2Pp2WMb17vsCdkeuX7hHA2J_pOQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "34145947868-1bfc6unbtfdrldrdga2ac4hmiu6801uv.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "34145947868-np7jlsh29phoqlct7asdkjdd9f81mkon.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.sarapApp"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
