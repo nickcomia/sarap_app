@@ -9,10 +9,6 @@ import '../services/report_service.dart';
 import 'onboarding/onboarding_flow.dart';
 import 'splash_screen.dart';
 
-/// Figure 16: Profile Screen.
-/// Shows name/location/BMI badge/goal, saved & meal-plan counts, a Health
-/// Stats card, and the account menu: (1) My preferences, (2) My meal
-/// plans, (3) Saved places, (4) Update BMI & health info, (5) Sign out.
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
@@ -20,6 +16,8 @@ class ProfileScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppState.instance;
     final profile = state.profile;
+    final colors = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
@@ -84,9 +82,9 @@ class ProfileScreen extends StatelessWidget {
           const SizedBox(height: 18),
           Row(
             children: [
-              _countCard('Places saved', '${state.savedRestaurants.length}'),
+              _countCard(context, 'Places saved', '${state.savedRestaurants.length}'),
               const SizedBox(width: 12),
-              _countCard('Meal plans', state.mealPlan.isEmpty ? '0' : '1'),
+              _countCard(context, 'Meal plans', state.mealPlan.isEmpty ? '0' : '1'),
             ],
           ),
           const SizedBox(height: 22),
@@ -96,9 +94,10 @@ class ProfileScreen extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: AppColors.card,
+              color: colors.card,
               borderRadius: BorderRadius.circular(18),
-              boxShadow: AppShadows.card,
+              boxShadow: isDark ? null : AppShadows.card,
+              border: isDark ? Border.all(color: colors.border, width: 1) : null,
             ),
             child: Row(
               children: [
@@ -114,7 +113,6 @@ class ProfileScreen extends StatelessWidget {
           Text('Account', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 4),
 
-          // (1) My preferences
           ProfileMenuTile(
             icon: Icons.tune,
             label: 'My preferences',
@@ -122,19 +120,16 @@ class ProfileScreen extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const OnboardingFlow(initialStep: 0)),
             ),
           ),
-          // (2) My meal plans
           ProfileMenuTile(
             icon: Icons.calendar_month_outlined,
             label: 'My meal plans',
             onTap: () => state.setHomeTab(1),
           ),
-          // (3) Saved places
           ProfileMenuTile(
             icon: Icons.favorite_border,
             label: 'Saved places',
             onTap: () => state.setHomeTab(2),
           ),
-          // (4) Update BMI & health info
           ProfileMenuTile(
             icon: Icons.monitor_weight_outlined,
             label: 'Update BMI & health info',
@@ -143,29 +138,30 @@ class ProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          const Divider(color: AppColors.border),
+          Divider(color: colors.border),
           ProfileMenuTile(
             icon: Icons.email_outlined,
             label: 'Email my report',
             onTap: () => _emailReport(context, state),
           ),
           const SizedBox(height: 10),
-          const Divider(color: AppColors.border),
+          Divider(color: colors.border),
           ProfileMenuTile(
             icon: Icons.lock_reset_outlined,
             label: 'Reset password',
             onTap: () => _resetPassword(context, state),
           ),
           const SizedBox(height: 10),
-          const Divider(color: AppColors.border),
+          Divider(color: colors.border),
           // Dark mode toggle
           Container(
             margin: const EdgeInsets.only(bottom: 10),
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
             decoration: BoxDecoration(
-              color: AppColors.card,
+              color: colors.card,
               borderRadius: BorderRadius.circular(16),
-              boxShadow: AppShadows.soft,
+              boxShadow: isDark ? null : AppShadows.soft,
+              border: isDark ? Border.all(color: colors.border, width: 1) : null,
             ),
             child: Row(
               children: [
@@ -173,27 +169,25 @@ class ProfileScreen extends StatelessWidget {
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: AppColors.chipSelectedBg,
+                    color: colors.chipSelectedBg,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.dark_mode_outlined,
-                      size: 19, color: AppColors.primaryDark),
+                  child: Icon(Icons.dark_mode_outlined, size: 19, color: colors.primaryDark),
                 ),
                 const SizedBox(width: 14),
-                const Expanded(
+                Expanded(
                   child: Text('Dark mode',
                       style: TextStyle(
-                          fontSize: 14.5, fontWeight: FontWeight.w600, color: AppColors.navy)),
+                          fontSize: 14.5, fontWeight: FontWeight.w600, color: colors.navy)),
                 ),
                 Switch(
                   value: state.isDarkMode,
-                  activeColor: AppColors.primary,
+                  activeColor: colors.primary,
                   onChanged: (_) => state.toggleTheme(),
                 ),
               ],
             ),
           ),
-          // (5) Sign out button
           ProfileMenuTile(
             icon: Icons.logout,
             label: 'Sign out',
@@ -221,33 +215,31 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _countCard(String label, String value) {
+  Widget _countCard(BuildContext context, String label, String value) {
+    final colors = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 18),
         decoration: BoxDecoration(
-          color: AppColors.card,
+          color: colors.card,
           borderRadius: BorderRadius.circular(18),
-          boxShadow: AppShadows.card,
+          boxShadow: isDark ? null : AppShadows.card,
+          border: isDark ? Border.all(color: colors.border, width: 1) : null,
         ),
         child: Column(
           children: [
             Text(value,
-                style: const TextStyle(
-                    fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.navy)),
+                style: TextStyle(
+                    fontSize: 22, fontWeight: FontWeight.w800, color: colors.navy)),
             const SizedBox(height: 4),
-            Text(label, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+            Text(label, style: TextStyle(fontSize: 12, color: colors.muted)),
           ],
         ),
       ),
     );
   }
 
-  // Builds a plain-text report of the profile + meal plan and opens it
-  // in the device's own email app via a mailto: link, pre-filled and
-  // ready to send. (This composes through the user's own mail client
-  // rather than a server-triggered send — no SMTP/email-provider account
-  // needed for the app itself.)
   Future<void> _emailReport(BuildContext context, AppState state) async {
     final report = ReportService.buildReport(state.profile, state.mealPlan);
     final uri = Uri(
@@ -270,9 +262,7 @@ class ProfileScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Reset password'),
-        content: Text(
-          'Send a password reset link to ${state.profile.email}?',
-        ),
+        content: Text('Send a password reset link to ${state.profile.email}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),

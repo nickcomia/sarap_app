@@ -79,9 +79,11 @@ class _HomeShellState extends State<HomeShell> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: context.colors.card,
               borderRadius: BorderRadius.circular(26),
-              boxShadow: AppShadows.floating,
+              boxShadow: Theme.of(context).brightness == Brightness.dark
+                  ? null
+                  : AppShadows.floating,
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -106,7 +108,7 @@ class _HomeShellState extends State<HomeShell> {
                         children: [
                           Icon(
                             active ? item.activeIcon : item.icon,
-                            color: active ? Colors.white : AppColors.muted,
+                            color: active ? Colors.white : context.colors.muted,
                             size: 22,
                           ),
                           if (active) ...[

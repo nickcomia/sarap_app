@@ -13,6 +13,7 @@ class SavedScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppState.instance;
     final saved = state.savedRestaurants;
+    final colors = context.colors;
 
     return CustomScrollView(
       slivers: [
@@ -31,15 +32,15 @@ class SavedScreen extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.favorite_border, size: 54, color: AppColors.muted),
+                    Icon(Icons.favorite_border, size: 54, color: colors.muted),
                     const SizedBox(height: 14),
                     Text('No saved places yet',
                         style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 6),
-                    const Text(
+                    Text(
                       'Tap the heart icon on any restaurant to save it here.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: AppColors.muted, fontSize: 13),
+                      style: TextStyle(color: colors.muted, fontSize: 13),
                     ),
                   ],
                 ),

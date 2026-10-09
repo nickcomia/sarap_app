@@ -97,7 +97,7 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
                       const SizedBox(height: 4),
                       Text(
                         "Here's what's trending near Tanauan City",
-                        style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 13),
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.75), fontSize: 13),
                       ),
                     ],
                   ),
@@ -137,7 +137,7 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [
                             BoxShadow(
-                              color: AppColors.primary.withOpacity(0.35),
+                              color: AppColors.primary.withValues(alpha: 0.35),
                               blurRadius: 14,
                               offset: const Offset(0, 6),
                             ),
@@ -289,7 +289,7 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
                                     maxLines: 4,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
-                                        color: Colors.white.withOpacity(0.9),
+                                        color: Colors.white.withValues(alpha: 0.9),
                                         fontSize: 12,
                                         height: 1.3),
                                   ),

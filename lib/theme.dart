@@ -84,21 +84,21 @@ class AppRadius {
 class AppShadows {
   static List<BoxShadow> card = [
     BoxShadow(
-      color: AppColors.navy.withOpacity(0.06),
+      color: AppColors.navy.withValues(alpha: 0.06),
       blurRadius: 20,
       offset: const Offset(0, 8),
     ),
   ];
   static List<BoxShadow> soft = [
     BoxShadow(
-      color: AppColors.navy.withOpacity(0.04),
+      color: AppColors.navy.withValues(alpha: 0.04),
       blurRadius: 12,
       offset: const Offset(0, 4),
     ),
   ];
   static List<BoxShadow> floating = [
     BoxShadow(
-      color: AppColors.navy.withOpacity(0.12),
+      color: AppColors.navy.withValues(alpha: 0.12),
       blurRadius: 24,
       offset: const Offset(0, 10),
     ),
@@ -278,7 +278,7 @@ class AppTheme {
         activeTrackColor: AppColors.primary,
         inactiveTrackColor: AppColors.border,
         thumbColor: AppColors.primary,
-        overlayColor: AppColors.primary.withOpacity(0.15),
+        overlayColor: AppColors.primary.withValues(alpha: 0.15),
         trackHeight: 5,
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
@@ -424,7 +424,7 @@ class AppTheme {
         activeTrackColor: AppColorsDark.primary,
         inactiveTrackColor: AppColorsDark.border,
         thumbColor: AppColorsDark.primary,
-        overlayColor: AppColorsDark.primary.withOpacity(0.15),
+        overlayColor: AppColorsDark.primary.withValues(alpha: 0.15),
         trackHeight: 5,
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(

@@ -33,18 +33,18 @@ class _AdminMenuItemsScreenState extends State<AdminMenuItemsScreen> {
       body: _items == null
           ? const Center(child: CircularProgressIndicator())
           : _items!.isEmpty
-              ? Center(
+              ? const Center(
                   child: Padding(
-                    padding: const EdgeInsets.all(32),
+                    padding: EdgeInsets.all(32),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.restaurant_menu, size: 48, color: AppColors.muted),
-                        const SizedBox(height: 12),
-                        const Text('No menu items yet',
+                        Icon(Icons.restaurant_menu, size: 48, color: AppColors.muted),
+                        SizedBox(height: 12),
+                        Text('No menu items yet',
                             style: TextStyle(fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 6),
-                        const Text('Tap the button below to add the first dish.',
+                        SizedBox(height: 6),
+                        Text('Tap the button below to add the first dish.',
                             style: TextStyle(color: AppColors.muted, fontSize: 13)),
                       ],
                     ),

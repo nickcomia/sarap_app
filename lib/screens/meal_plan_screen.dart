@@ -17,7 +17,7 @@ class MealPlanScreen extends StatefulWidget {
 class _MealPlanScreenState extends State<MealPlanScreen> {
   int _dayIndex = 0;
 
-@override
+  @override
   void initState() {
     super.initState();
     final state = AppState.instance;
@@ -64,6 +64,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     final profile = state.profile;
     final remaining = (profile.dailyCalorieTarget - day.totalCalories)
         .clamp(0, profile.dailyCalorieTarget);
+    final colors = context.colors;
 
     return CustomScrollView(
       slivers: [
@@ -81,19 +82,19 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                     IconButton(
                       tooltip: 'Remind me about today\'s meals',
                       onPressed: () => _sendTodayReminder(day, remaining.toInt()),
-                      icon: const Icon(Icons.notifications_outlined, color: AppColors.navy),
+                      icon: Icon(Icons.notifications_outlined, color: colors.navy),
                     ),
                   ],
                 ),
                 const SizedBox(height: 4),
-                const Text('Log what you actually ate — from restaurants or home-cooked',
-                    style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
+                Text('Log what you actually ate — from restaurants or home-cooked',
+                    style: TextStyle(color: colors.muted, fontSize: 12.5)),
                 const SizedBox(height: 16),
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: AppColors.navy,
+                    gradient: AppGradients.hero,
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Row(
@@ -124,13 +125,13 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                           alignment: Alignment.center,
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           decoration: BoxDecoration(
-                            color: selected ? AppColors.primary : AppColors.chipBg,
+                            color: selected ? colors.primary : colors.chipBg,
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
                             plan[i].dayLabel,
                             style: TextStyle(
-                              color: selected ? Colors.white : AppColors.navy,
+                              color: selected ? Colors.white : colors.navy,
                               fontWeight: FontWeight.w700,
                               fontSize: 13,
                             ),
@@ -183,12 +184,15 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
       );
 
   Widget _mealCard(BuildContext context, MealEntry meal) {
+    final colors = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.card,
+        color: colors.card,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: colors.border),
+        boxShadow: isDark ? null : AppShadows.soft,
       ),
       child: Row(
         children: [
@@ -196,10 +200,10 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             width: 46,
             height: 46,
             decoration: BoxDecoration(
-              color: AppColors.chipSelectedBg,
+              color: colors.chipSelectedBg,
               borderRadius: BorderRadius.circular(13),
             ),
-            child: Icon(_iconForSlot(meal.slot), color: AppColors.primaryDark, size: 22),
+            child: Icon(_iconForSlot(meal.slot), color: colors.primaryDark, size: 22),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -207,14 +211,15 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(meal.slot.label.toUpperCase(),
-                    style: const TextStyle(
-                        fontSize: 10.5, color: AppColors.muted, fontWeight: FontWeight.w700)),
+                    style: TextStyle(
+                        fontSize: 10.5, color: colors.muted, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),
                 Text(meal.dishName ?? '',
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 14, color: colors.navy)),
                 const SizedBox(height: 2),
                 Text('${meal.restaurantName} • ${meal.calories} kcal',
-                    style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+                    style: TextStyle(color: colors.muted, fontSize: 12)),
               ],
             ),
           ),
@@ -222,9 +227,9 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
           InkWell(
             onTap: () => _openEditSheet(meal),
             borderRadius: BorderRadius.circular(10),
-            child: const Padding(
-              padding: EdgeInsets.all(6),
-              child: Icon(Icons.edit_outlined, size: 19, color: AppColors.muted),
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Icon(Icons.edit_outlined, size: 19, color: colors.muted),
             ),
           ),
         ],
@@ -233,28 +238,29 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
   }
 
   Widget _emptySlotCard(BuildContext context, MealEntry meal) {
+    final colors = context.colors;
     return InkWell(
       onTap: () => _openEditSheet(meal),
       borderRadius: BorderRadius.circular(18),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: AppColors.chipBg,
+          color: colors.chipBg,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-              color: AppColors.primary.withOpacity(0.4),
+              color: colors.primary.withValues(alpha: 0.4),
               style: BorderStyle.solid,
               width: 1.4),
         ),
         child: Row(
           children: [
-            Icon(Icons.add_circle_outline, color: AppColors.primaryDark),
+            Icon(Icons.add_circle_outline, color: colors.primaryDark),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 // (3) "Tap to pick a dinner option" prompt (or breakfast/lunch/merienda as applicable)
                 'Tap to log your ${meal.slot.label.toLowerCase()}',
-                style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.primaryDark),
+                style: TextStyle(fontWeight: FontWeight.w600, color: colors.primaryDark),
               ),
             ),
           ],
@@ -373,6 +379,7 @@ class _EditMealSheetState extends State<_EditMealSheet> {
   Widget build(BuildContext context) {
     final restaurants = AppState.instance.restaurants;
     final screenWidth = MediaQuery.of(context).size.width;
+    final colors = context.colors;
 
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
@@ -382,9 +389,9 @@ class _EditMealSheetState extends State<_EditMealSheet> {
         width: screenWidth,
         child: Container(
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          decoration: BoxDecoration(
+            color: colors.card,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -396,7 +403,7 @@ class _EditMealSheetState extends State<_EditMealSheet> {
                   height: 4,
                   margin: const EdgeInsets.only(bottom: 14),
                   decoration: BoxDecoration(
-                    color: Colors.black12,
+                    color: colors.border,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
@@ -408,6 +415,7 @@ class _EditMealSheetState extends State<_EditMealSheet> {
                 children: [
                   Expanded(
                     child: _toggleChip(
+                      context: context,
                       label: 'From a restaurant',
                       selected: _fromRestaurant,
                       onTap: () => setState(() => _fromRestaurant = true),
@@ -416,6 +424,7 @@ class _EditMealSheetState extends State<_EditMealSheet> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: _toggleChip(
+                      context: context,
                       label: 'Home-cooked',
                       selected: !_fromRestaurant,
                       onTap: () => setState(() => _fromRestaurant = false),
@@ -428,7 +437,7 @@ class _EditMealSheetState extends State<_EditMealSheet> {
                 SizedBox(
                   width: double.infinity,
                   child: DropdownButtonFormField<String>(
-                    value: _selectedRestaurantId,
+                    initialValue: _selectedRestaurantId,
                     isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Restaurant',
@@ -497,10 +506,12 @@ class _EditMealSheetState extends State<_EditMealSheet> {
   }
 
   Widget _toggleChip({
+    required BuildContext context,
     required String label,
     required bool selected,
     required VoidCallback onTap,
   }) {
+    final colors = context.colors;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
@@ -508,13 +519,13 @@ class _EditMealSheetState extends State<_EditMealSheet> {
         padding: const EdgeInsets.symmetric(vertical: 10),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected ? AppColors.primary : AppColors.chipBg,
+          color: selected ? colors.primary : colors.chipBg,
           borderRadius: BorderRadius.circular(14),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? Colors.white : AppColors.navy,
+            color: selected ? Colors.white : colors.navy,
             fontWeight: FontWeight.w700,
             fontSize: 12.5,
           ),

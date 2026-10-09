@@ -174,7 +174,7 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
             ),
             const SizedBox(height: 14),
             DropdownButtonFormField<String>(
-              value: _type,
+              initialValue: _type,
               decoration: const InputDecoration(labelText: 'Establishment type'),
               items: _types.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
               onChanged: (v) => setState(() => _type = v!),
@@ -190,7 +190,7 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    value: _priceRange,
+                    initialValue: _priceRange,
                     decoration: const InputDecoration(labelText: 'Price range'),
                     items: _prices.map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
                     onChanged: (v) => setState(() => _priceRange = v!),

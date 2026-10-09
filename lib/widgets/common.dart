@@ -75,7 +75,7 @@ class SarapChip extends StatelessWidget {
           boxShadow: selected
               ? [
                   BoxShadow(
-                    color: AppColors.primary.withOpacity(0.28),
+                    color: AppColors.primary.withValues(alpha: 0.28),
                     blurRadius: 14,
                     offset: const Offset(0, 6),
                   ),
@@ -162,7 +162,7 @@ class MatchBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: AppColors.secondary.withOpacity(0.35),
+            color: AppColors.secondary.withValues(alpha: 0.35),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -223,7 +223,7 @@ class RestaurantCard extends StatelessWidget {
                       end: Alignment.bottomRight,
                       colors: [
                         Color(restaurant.accentColorValue),
-                        Color(restaurant.accentColorValue).withOpacity(0.6),
+                        Color(restaurant.accentColorValue).withValues(alpha: 0.6),
                       ],
                     ),
                   ),
@@ -371,7 +371,7 @@ class ProfileMenuTile extends StatelessWidget {
               height: 40,
               decoration: BoxDecoration(
                 color: danger
-                    ? AppColors.danger.withOpacity(0.1)
+                    ? AppColors.danger.withValues(alpha: 0.1)
                     : AppColors.chipSelectedBg,
                 borderRadius: BorderRadius.circular(12),
               ),

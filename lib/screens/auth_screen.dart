@@ -359,8 +359,8 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                 ],
                 const SizedBox(height: 16),
-                Row(
-                  children: const [
+                const Row(
+                  children: [
                     Expanded(child: Divider(color: AppColors.border)),
                     Padding(
                       padding: EdgeInsets.symmetric(horizontal: 10),
@@ -396,7 +396,7 @@ class _AuthScreenState extends State<AuthScreen> {
           color: active ? Colors.white : Colors.transparent,
           borderRadius: BorderRadius.circular(11),
           boxShadow: active
-              ? [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 6)]
+              ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 6)]
               : [],
         ),
         alignment: Alignment.center,
