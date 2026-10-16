@@ -279,16 +279,46 @@ class AppState extends ChangeNotifier {
   /// (e.g. you haven't run the seed script yet).
   Future<void> loadRestaurantsFromServer() async {
     try {
-      final fetched = await FirebaseService.fetchRestaurants();
-      debugPrint('FETCHED COUNT: ${fetched.length}');
-      if (fetched.isNotEmpty) {
-        restaurants = fetched;
-      }
+      // Cache-first: instant on every launch after the first.
+      final cached = await FirebaseService.fetchRestaurants();
+      debugPrint('FETCHED COUNT: ${cached.length}');
+      if (cached.isNotEmpty) _applyRestaurants(cached);
     } catch (e) {
       debugPrint('FETCH ERROR: $e');
     }
     MatchingEngine.recomputeAll(profile, restaurants);
     notifyListeners();
+
+    // Not awaited on purpose: refresh from the server without blocking.
+    _refreshRestaurantsInBackground();
+  }
+
+  Future<void> _refreshRestaurantsInBackground() async {
+    try {
+      final fresh = await FirebaseService.fetchRestaurants(forceServer: true);
+      if (fresh.isEmpty) return;
+      _applyRestaurants(fresh);
+      MatchingEngine.recomputeAll(profile, restaurants);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('BACKGROUND REFRESH ERROR: $e');
+    }
+  }
+
+  /// Swaps in a new restaurant list while keeping what the app already
+  /// knows locally (saved hearts and GPS distances), so a background
+  /// refresh doesn't visibly reset them.
+  void _applyRestaurants(List<Restaurant> incoming) {
+    final savedIds = {for (final r in restaurants) if (r.isSaved) r.id};
+    final distanceById = {for (final r in restaurants) r.id: r.distanceKm};
+    for (final r in incoming) {
+      r.isSaved = savedIds.contains(r.id);
+      if (userLat != null) {
+        final d = distanceById[r.id];
+        if (d != null) r.distanceKm = d;
+      }
+    }
+    restaurants = incoming;
   }
 
   void toggleSaved(String restaurantId) {

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'cache_first.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -165,7 +166,7 @@ class FirebaseService {
   static Future<Map<String, dynamic>?> fetchUserDoc() async {
     final uid = currentUid;
     if (uid == null) return null;
-    final doc = await _db.collection('users').doc(uid).get();
+    final doc = await getDocCacheFirst(_db.collection('users').doc(uid));
     return doc.data();
   }
 
@@ -174,7 +175,7 @@ class FirebaseService {
   static Future<Map<String, dynamic>?> fetchProfileDoc() async {
     final uid = currentUid;
     if (uid == null) return null;
-    final doc = await _db.collection('profiles').doc(uid).get();
+    final doc = await getDocCacheFirst(_db.collection('profiles').doc(uid));
     return doc.data();
   }
 
@@ -198,8 +199,9 @@ class FirebaseService {
   // Restaurants
   // ------------------------------------------------------------------
 
-  static Future<List<Restaurant>> fetchRestaurants() async {
-    final snap = await _db.collection('restaurants').get();
+  static Future<List<Restaurant>> fetchRestaurants({bool forceServer = false}) async {
+    final query = _db.collection('restaurants');
+    final snap = forceServer ? await query.get() : await getCacheFirst(query);
 
     if (snap.docs.isEmpty) {
       // First run — nobody has seeded the "restaurants" collection yet.
@@ -408,7 +410,8 @@ class FirebaseService {
   static Future<List<String>> fetchSavedIds() async {
     final uid = currentUid;
     if (uid == null) return [];
-    final snap = await _db.collection('users').doc(uid).collection('saved').get();
+    final snap = await getCacheFirst(
+        _db.collection('users').doc(uid).collection('saved'));
     return snap.docs.map((d) => d.id).toList();
   }
 
@@ -458,7 +461,8 @@ class FirebaseService {
   static Future<List<Map<String, dynamic>>> fetchMealPlanEntries() async {
     final uid = currentUid;
     if (uid == null) return [];
-    final snap = await _db.collection('users').doc(uid).collection('mealPlan').get();
+    final snap = await getCacheFirst(
+        _db.collection('users').doc(uid).collection('mealPlan'));
     return snap.docs.map((d) => d.data()).toList();
   }
 

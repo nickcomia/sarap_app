@@ -67,6 +67,8 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
     final cameraTarget = (state.userLat != null && state.userLng != null)
         ? LatLng(state.userLat!, state.userLng!)
         : _tanauanCenter;
+    final colors = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return CustomScrollView(
       slivers: [
@@ -111,16 +113,18 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
                       child: Container(
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
-                          boxShadow: AppShadows.soft,
+                          boxShadow: isDark ? null : AppShadows.soft,
                         ),
                         child: TextField(
                           controller: _searchController,
                           onChanged: (v) => setState(() => _query = v),
-                          decoration: const InputDecoration(
+                          style: TextStyle(color: colors.navy),
+                          decoration: InputDecoration(
                             hintText: 'Search restaurants, cafés, cuisines…',
-                            prefixIcon: Icon(Icons.search, color: AppColors.muted),
+                            hintStyle: TextStyle(color: colors.muted),
+                            prefixIcon: Icon(Icons.search, color: colors.muted),
                             filled: true,
-                            fillColor: Colors.white,
+                            fillColor: colors.card,
                           ),
                         ),
                       ),
@@ -137,7 +141,7 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [
                             BoxShadow(
-                              color: AppColors.primary.withValues(alpha: 0.35),
+                              color: colors.primary.withValues(alpha: 0.35),
                               blurRadius: 14,
                               offset: const Offset(0, 6),
                             ),
@@ -154,7 +158,7 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
                 Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(20),
-                    boxShadow: AppShadows.card,
+                    boxShadow: isDark ? null : AppShadows.card,
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(20),
@@ -184,12 +188,15 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                               decoration: BoxDecoration(
-                                color: Colors.white,
+                                color: colors.card,
                                 borderRadius: BorderRadius.circular(20),
-                                boxShadow: AppShadows.soft,
+                                boxShadow: isDark ? null : AppShadows.soft,
                               ),
-                              child: const Text('Tap to expand map',
-                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                              child: Text('Tap to expand map',
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: colors.navy)),
                             ),
                           ),
                           if (state.locationDenied)
@@ -199,12 +206,12 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                                 decoration: BoxDecoration(
-                                  color: Colors.white,
+                                  color: colors.card,
                                   borderRadius: BorderRadius.circular(20),
-                                  boxShadow: AppShadows.soft,
+                                  boxShadow: isDark ? null : AppShadows.soft,
                                 ),
-                                child: const Text('Location off — showing est. distances',
-                                    style: TextStyle(fontSize: 10.5, color: AppColors.muted)),
+                                child: Text('Location off — showing est. distances',
+                                    style: TextStyle(fontSize: 10.5, color: colors.muted)),
                               ),
                             ),
                         ],
@@ -372,6 +379,7 @@ class _FullMapSheetState extends State<_FullMapSheet> {
     final cameraTarget = (state.userLat != null && state.userLng != null)
         ? LatLng(state.userLat!, state.userLng!)
         : _tanauanCenter;
+    final colors = context.colors;
 
     return DraggableScrollableSheet(
       controller: _sheetController,
@@ -380,9 +388,9 @@ class _FullMapSheetState extends State<_FullMapSheet> {
       minChildSize: 0.5,
       builder: (context, scrollController) {
         return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          decoration: BoxDecoration(
+            color: colors.card,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: Column(
             children: [
@@ -402,7 +410,7 @@ class _FullMapSheetState extends State<_FullMapSheet> {
                       width: 44,
                       height: 5,
                       decoration: BoxDecoration(
-                        color: AppColors.border,
+                        color: colors.border,
                         borderRadius: BorderRadius.circular(4),
                       ),
                     ),
@@ -417,7 +425,7 @@ class _FullMapSheetState extends State<_FullMapSheet> {
                           ),
                           IconButton(
                             onPressed: () => Navigator.of(context).pop(),
-                            icon: const Icon(Icons.close),
+                            icon: Icon(Icons.close, color: colors.navy),
                           ),
                         ],
                       ),

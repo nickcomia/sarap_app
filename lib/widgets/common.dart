@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../theme.dart';
 import '../models.dart';
 
 /// Renders a photo from either a bundled local asset path
-/// (e.g. "assets/photos/adobo.jpg") or a network URL — auto-detected,
+/// (e.g. "assets/photos/adobo.jpg") or a network URL, auto-detected,
 /// with a graceful fallback if the image is missing or fails to load.
+/// Network photos are cached on disk after the first download.
 class SmartImage extends StatelessWidget {
   final String? source;
   final double? width;
@@ -27,12 +29,15 @@ class SmartImage extends StatelessWidget {
 
     final isNetwork = source!.startsWith('http://') || source!.startsWith('https://');
     if (isNetwork) {
-      return Image.network(
-        source!,
+      return CachedNetworkImage(
+        imageUrl: source!,
         width: width,
         height: height,
         fit: fit,
-        errorBuilder: (_, __, ___) => fallback,
+        memCacheWidth: width == null ? null : (width! * 3).round(),
+        fadeInDuration: const Duration(milliseconds: 150),
+        placeholder: (_, __) => fallback,
+        errorWidget: (_, __, ___) => fallback,
       );
     }
     return Image.asset(
@@ -46,8 +51,7 @@ class SmartImage extends StatelessWidget {
 }
 
 /// A rounded, tappable chip used across onboarding for multi-select
-/// preferences — now with a subtle shadow when selected instead of a
-/// flat border, so the "active" state reads more clearly.
+/// preferences, readable in both light and dark themes.
 class SarapChip extends StatelessWidget {
   final String label;
   final bool selected;
@@ -61,6 +65,7 @@ class SarapChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(30),
@@ -70,12 +75,12 @@ class SarapChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
         decoration: BoxDecoration(
           gradient: selected ? AppGradients.primary : null,
-          color: selected ? null : AppColors.chipBg,
+          color: selected ? null : colors.chipBg,
           borderRadius: BorderRadius.circular(30),
           boxShadow: selected
               ? [
                   BoxShadow(
-                    color: AppColors.primary.withValues(alpha: 0.28),
+                    color: colors.primary.withValues(alpha: 0.28),
                     blurRadius: 14,
                     offset: const Offset(0, 6),
                   ),
@@ -85,7 +90,7 @@ class SarapChip extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? Colors.white : AppColors.navy,
+            color: selected ? Colors.white : colors.navy,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
             fontSize: 13.5,
           ),
@@ -111,6 +116,7 @@ class StepProgress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -123,7 +129,7 @@ class StepProgress extends StatelessWidget {
                 height: 6,
                 decoration: BoxDecoration(
                   gradient: active ? AppGradients.primary : null,
-                  color: active ? null : AppColors.border,
+                  color: active ? null : colors.border,
                   borderRadius: BorderRadius.circular(4),
                 ),
               ),
@@ -132,8 +138,8 @@ class StepProgress extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text('Step $step of $totalSteps',
-            style: const TextStyle(
-                color: AppColors.muted,
+            style: TextStyle(
+                color: colors.muted,
                 fontSize: 12.5,
                 fontWeight: FontWeight.w600)),
         const SizedBox(height: 14),
@@ -146,9 +152,8 @@ class StepProgress extends StatelessWidget {
   }
 }
 
-/// Circular-ish percentage badge shown on restaurant match cards —
-/// now a solid gradient pill instead of flat tinted background, so it
-/// reads as a highlight rather than a label.
+/// Percentage badge shown on restaurant match cards. A solid gradient
+/// pill, so it looks the same on light and dark cards.
 class MatchBadge extends StatelessWidget {
   final int percent;
   const MatchBadge({super.key, required this.percent});
@@ -180,8 +185,9 @@ class MatchBadge extends StatelessWidget {
   }
 }
 
-/// The restaurant "match card" — rebuilt with soft elevation instead of
-/// a border, a slightly taller photo, and tighter type hierarchy.
+/// The restaurant "match card". Elevated in light mode, bordered in dark
+/// mode (shadows barely show on dark), with the photo dimmed slightly in
+/// dark mode so white-background logos don't glare.
 class RestaurantCard extends StatelessWidget {
   final Restaurant restaurant;
   final VoidCallback onTap;
@@ -195,14 +201,17 @@ class RestaurantCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       borderRadius: BorderRadius.circular(22),
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: AppColors.card,
+          color: colors.card,
           borderRadius: BorderRadius.circular(22),
-          boxShadow: AppShadows.card,
+          boxShadow: isDark ? null : AppShadows.card,
+          border: isDark ? Border.all(color: colors.border, width: 1) : null,
         ),
         padding: const EdgeInsets.all(12),
         child: Row(
@@ -210,24 +219,31 @@ class RestaurantCard extends StatelessWidget {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(16),
-              child: SmartImage(
-                source: restaurant.imageUrl,
+              child: Container(
                 width: 84,
                 height: 84,
-                fallback: Container(
+                foregroundDecoration: isDark
+                    ? BoxDecoration(color: Colors.black.withValues(alpha: 0.25))
+                    : null,
+                child: SmartImage(
+                  source: restaurant.imageUrl,
                   width: 84,
                   height: 84,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Color(restaurant.accentColorValue),
-                        Color(restaurant.accentColorValue).withValues(alpha: 0.6),
-                      ],
+                  fallback: Container(
+                    width: 84,
+                    height: 84,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(restaurant.accentColorValue),
+                          Color(restaurant.accentColorValue).withValues(alpha: 0.6),
+                        ],
+                      ),
                     ),
+                    child: const Icon(Icons.restaurant, color: Colors.white, size: 30),
                   ),
-                  child: const Icon(Icons.restaurant, color: Colors.white, size: 30),
                 ),
               ),
             ),
@@ -253,9 +269,7 @@ class RestaurantCard extends StatelessWidget {
                             restaurant.isSaved
                                 ? Icons.favorite
                                 : Icons.favorite_border,
-                            color: restaurant.isSaved
-                                ? AppColors.primary
-                                : AppColors.muted,
+                            color: restaurant.isSaved ? colors.primary : colors.muted,
                             size: 20,
                           ),
                         ),
@@ -277,16 +291,17 @@ class RestaurantCard extends StatelessWidget {
                       Icon(Icons.star_rounded, size: 16, color: Colors.amber.shade600),
                       const SizedBox(width: 2),
                       Text('${restaurant.rating}',
-                          style: const TextStyle(
-                              fontSize: 12, fontWeight: FontWeight.w700)),
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: colors.navy)),
                       const SizedBox(width: 8),
                       Text('${restaurant.distanceKm} km',
                           style: Theme.of(context).textTheme.bodyMedium),
                       const Spacer(),
                       Text(restaurant.priceRange,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.navy)),
+                          style: TextStyle(
+                              fontWeight: FontWeight.w800, color: colors.navy)),
                     ],
                   ),
                 ],
@@ -299,9 +314,7 @@ class RestaurantCard extends StatelessWidget {
   }
 }
 
-/// A labelled statistic used on the Profile screen's Health Stats card —
-/// now each value sits in its own soft pill instead of bare text, so
-/// the row reads as distinct data points rather than a flat list.
+/// A labelled statistic used on the Profile screen's Health Stats card.
 class StatPill extends StatelessWidget {
   final String label;
   final String value;
@@ -309,6 +322,8 @@ class StatPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Expanded(
       child: Column(
         children: [
@@ -316,27 +331,27 @@ class StatPill extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 12),
             decoration: BoxDecoration(
-              color: AppColors.card,
+              color: colors.chipBg,
               borderRadius: BorderRadius.circular(14),
-              boxShadow: AppShadows.soft,
+              boxShadow: isDark ? null : AppShadows.soft,
+              border: isDark ? Border.all(color: colors.border, width: 1) : null,
             ),
             alignment: Alignment.center,
             child: Text(value,
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.navy)),
+                style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w800, color: colors.navy)),
           ),
           const SizedBox(height: 6),
           Text(label,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 11.5, color: AppColors.muted)),
+              style: TextStyle(fontSize: 11.5, color: colors.muted)),
         ],
       ),
     );
   }
 }
 
-/// Simple labeled account-menu row used on the Profile screen — now a
-/// standalone elevated row with an icon on a tinted gradient chip.
+/// Labeled account-menu row used on the Profile screen.
 class ProfileMenuTile extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -352,7 +367,9 @@ class ProfileMenuTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = danger ? AppColors.danger : AppColors.navy;
+    final colors = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = danger ? colors.danger : colors.navy;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
@@ -360,9 +377,10 @@ class ProfileMenuTile extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
         decoration: BoxDecoration(
-          color: AppColors.card,
+          color: colors.card,
           borderRadius: BorderRadius.circular(16),
-          boxShadow: AppShadows.soft,
+          boxShadow: isDark ? null : AppShadows.soft,
+          border: isDark ? Border.all(color: colors.border, width: 1) : null,
         ),
         child: Row(
           children: [
@@ -371,11 +389,11 @@ class ProfileMenuTile extends StatelessWidget {
               height: 40,
               decoration: BoxDecoration(
                 color: danger
-                    ? AppColors.danger.withValues(alpha: 0.1)
-                    : AppColors.chipSelectedBg,
+                    ? colors.danger.withValues(alpha: 0.1)
+                    : colors.chipSelectedBg,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(icon, size: 19, color: danger ? color : AppColors.primaryDark),
+              child: Icon(icon, size: 19, color: danger ? color : colors.primaryDark),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -384,7 +402,7 @@ class ProfileMenuTile extends StatelessWidget {
                       fontSize: 14.5, fontWeight: FontWeight.w600, color: color)),
             ),
             if (!danger)
-              const Icon(Icons.chevron_right_rounded, color: AppColors.muted, size: 22),
+              Icon(Icons.chevron_right_rounded, color: colors.muted, size: 22),
           ],
         ),
       ),
