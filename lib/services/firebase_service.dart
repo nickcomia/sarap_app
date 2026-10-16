@@ -135,6 +135,60 @@ class FirebaseService {
     }
   }
 
+  /// Starts an email change. Re-checks the current password first (Firebase
+  /// requires a recent sign-in for this), then sends a verification link to
+  /// the NEW address. The account's email only changes once that link is
+  /// opened. Throws [ApiException] with a message safe to show the user.
+  static Future<void> requestEmailChange({
+    required String newEmail,
+    required String currentPassword,
+  }) async {
+    final user = _auth.currentUser;
+    final oldEmail = user?.email;
+    if (user == null || oldEmail == null) {
+      throw ApiException('You are not signed in');
+    }
+    try {
+      final cred = fb_auth.EmailAuthProvider.credential(
+        email: oldEmail,
+        password: currentPassword,
+      );
+      await user.reauthenticateWithCredential(cred);
+      await user.verifyBeforeUpdateEmail(newEmail);
+    } on fb_auth.FirebaseAuthException catch (e) {
+      if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
+        throw ApiException('Your current password is incorrect');
+      }
+      if (e.code == 'too-many-requests') {
+        throw ApiException('Too many attempts — please try again later');
+      }
+      throw ApiException(_friendlyAuthError(e));
+    }
+  }
+
+  /// Call on app start: if the user opened the verification link, Firebase
+  /// Auth now has the new email but users/{uid} still has the old one. This
+  /// refreshes the auth user and copies the new email into Firestore.
+  /// Returns the new email if it changed, otherwise null. Never throws.
+  static Future<String?> syncEmailFromAuth() async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return null;
+      await user.reload();
+      final fresh = _auth.currentUser?.email;
+      if (fresh == null) return null;
+      final doc = await _db.collection('users').doc(user.uid).get();
+      if (doc.data()?['email'] == fresh) return null;
+      await _db
+          .collection('users')
+          .doc(user.uid)
+          .set({'email': fresh}, SetOptions(merge: true));
+      return fresh;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ------------------------------------------------------------------
   // Profile
   // ------------------------------------------------------------------

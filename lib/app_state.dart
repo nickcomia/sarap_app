@@ -189,6 +189,11 @@ class AppState extends ChangeNotifier {
       return;
     }
     try {
+      // If the user opened an email-change verification link, copy the
+      // new address from Firebase Auth into their Firestore user doc
+      // before the profile is loaded below.
+      await FirebaseService.syncEmailFromAuth();
+
       final userData = await FirebaseService.fetchUserDoc();
       if (userData != null) {
         profile.name = userData['name'] ?? profile.name;

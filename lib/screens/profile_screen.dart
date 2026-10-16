@@ -4,7 +4,8 @@ import '../theme.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../widgets/common.dart';
-import '../services/firebase_service.dart';
+import '../widgets/forgot_password_sheet.dart';
+import '../widgets/change_email_sheet.dart';
 import '../services/report_service.dart';
 import 'onboarding/onboarding_flow.dart';
 import 'splash_screen.dart';
@@ -39,7 +40,7 @@ class ProfileScreen extends StatelessWidget {
                   padding: const EdgeInsets.all(3),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.4), width: 2),
                   ),
                   child: CircleAvatar(
                     radius: 28,
@@ -61,7 +62,7 @@ class ProfileScreen extends StatelessWidget {
                               color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
                       const SizedBox(height: 3),
                       Text('Tanauan City, Batangas',
-                          style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12.5)),
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 12.5)),
                       const SizedBox(height: 10),
                       Wrap(
                         spacing: 8,
@@ -70,7 +71,7 @@ class ProfileScreen extends StatelessWidget {
                           _badge('BMI ${profile.bmi.toStringAsFixed(1)} — ${profile.bmiCategory}',
                               Colors.white, AppColors.primaryDark),
                           _badge('Goal: ${profile.healthGoal.label}',
-                              Colors.white.withOpacity(0.9), const Color(0xFF1E9E6B)),
+                              Colors.white.withValues(alpha: 0.9), const Color(0xFF1E9E6B)),
                         ],
                       ),
                     ],
@@ -147,9 +148,20 @@ class ProfileScreen extends StatelessWidget {
           const SizedBox(height: 10),
           Divider(color: colors.border),
           ProfileMenuTile(
+            icon: Icons.alternate_email_rounded,
+            label: 'Change email',
+            onTap: () => showChangeEmailSheet(
+              context,
+              currentEmail: state.profile.email,
+            ),
+          ),
+          ProfileMenuTile(
             icon: Icons.lock_reset_outlined,
             label: 'Reset password',
-            onTap: () => _resetPassword(context, state),
+            onTap: () => showForgotPasswordSheet(
+              context,
+              initialEmail: state.profile.email,
+            ),
           ),
           const SizedBox(height: 10),
           Divider(color: colors.border),
@@ -182,7 +194,7 @@ class ProfileScreen extends StatelessWidget {
                 ),
                 Switch(
                   value: state.isDarkMode,
-                  activeColor: colors.primary,
+                  activeThumbColor: colors.primary,
                   onChanged: (_) => state.toggleTheme(),
                 ),
               ],
@@ -255,36 +267,5 @@ class ProfileScreen extends StatelessWidget {
         const SnackBar(content: Text('No email app found on this device')),
       );
     }
-  }
-
-  Future<void> _resetPassword(BuildContext context, AppState state) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reset password'),
-        content: Text('Send a password reset link to ${state.profile.email}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Send link'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    try {
-      await FirebaseService.sendPasswordResetEmail(state.profile.email);
-    } catch (_) {
-      // Ignore — show the same message either way.
-    }
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Password reset email sent — check your inbox.')),
-    );
   }
 }

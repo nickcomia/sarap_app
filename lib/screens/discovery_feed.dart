@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../theme.dart';
@@ -30,6 +32,7 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      enableDrag: false, // lets the map handle its own drag gestures
       backgroundColor: Colors.transparent,
       builder: (_) => _FullMapSheet(restaurants: AppState.instance.sortedByMatch),
     );
@@ -354,6 +357,12 @@ class _FullMapSheetState extends State<_FullMapSheet> {
   static const _tanauanCenter = LatLng(14.0863, 121.1497);
   final _sheetController = DraggableScrollableController();
 
+  @override
+  void dispose() {
+    _sheetController.dispose();
+    super.dispose();
+  }
+
   Set<Marker> _buildMarkers(BuildContext context) {
     return widget.restaurants.map((r) {
       return Marker(
@@ -363,8 +372,9 @@ class _FullMapSheetState extends State<_FullMapSheet> {
           title: r.name,
           snippet: '${r.matchPercent}% match • ${r.distanceKm.toStringAsFixed(1)} km away',
           onTap: () {
-            Navigator.of(context).pop();
-            Navigator.of(context).push(
+            final navigator = Navigator.of(context);
+            navigator.pop();
+            navigator.push(
               MaterialPageRoute(builder: (_) => RestaurantDetailScreen(restaurant: r)),
             );
           },
@@ -394,8 +404,8 @@ class _FullMapSheetState extends State<_FullMapSheet> {
           ),
           child: Column(
             children: [
-              // Drag handle — this is the only reliable drag target since
-              // GoogleMap below intercepts pan gestures for itself.
+              // Drag handle — the only drag target for resizing the sheet,
+              // since the GoogleMap below claims pan gestures for itself.
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onVerticalDragUpdate: (details) {
@@ -444,6 +454,12 @@ class _FullMapSheetState extends State<_FullMapSheet> {
                       myLocationEnabled: state.userLat != null,
                       myLocationButtonEnabled: true,
                       zoomControlsEnabled: true,
+                      scrollGesturesEnabled: true,
+                      zoomGesturesEnabled: true,
+                      gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                        Factory<OneSequenceGestureRecognizer>(
+                            () => EagerGestureRecognizer()),
+                      },
                     ),
                   ),
                 ),

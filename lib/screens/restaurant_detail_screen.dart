@@ -25,7 +25,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     _loadMenu();
   }
 
-Future<void> _loadMenu() async {
+  Future<void> _loadMenu() async {
     try {
       final items = await FirebaseService.fetchMenuItems(widget.restaurant.id);
       debugPrint('Loaded ${items.length} menu items for "${widget.restaurant.name}" (id: ${widget.restaurant.id})');
@@ -39,6 +39,7 @@ Future<void> _loadMenu() async {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     final r = widget.restaurant;
     return Scaffold(
       body: CustomScrollView(
@@ -106,33 +107,36 @@ Future<void> _loadMenu() async {
                   ),
                   const SizedBox(height: 6),
                   Text('${r.type} • ${r.cuisine}',
-                      style: const TextStyle(color: AppColors.muted, fontSize: 13.5)),
+                      style: TextStyle(color: colors.muted, fontSize: 13.5)),
                   const SizedBox(height: 14),
                   Row(
                     children: [
                       Icon(Icons.star, size: 17, color: Colors.amber.shade600),
                       const SizedBox(width: 4),
                       Text('${r.rating}',
-                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13.5,
+                              color: colors.navy)),
                       const SizedBox(width: 14),
-                      const Icon(Icons.location_on_outlined, size: 16, color: AppColors.muted),
+                      Icon(Icons.location_on_outlined, size: 16, color: colors.muted),
                       const SizedBox(width: 2),
                       Text('${r.distanceKm} km away',
-                          style: const TextStyle(color: AppColors.muted, fontSize: 13)),
+                          style: TextStyle(color: colors.muted, fontSize: 13)),
                       const SizedBox(width: 14),
                       Text(r.priceRange,
-                          style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.navy)),
+                          style: TextStyle(fontWeight: FontWeight.w800, color: colors.navy)),
                     ],
                   ),
                   const SizedBox(height: 18),
                   Text('About', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
                   Text(r.description,
-                      style: const TextStyle(color: AppColors.navy, fontSize: 13.5, height: 1.5)),
+                      style: TextStyle(color: colors.navy, fontSize: 13.5, height: 1.5)),
                   const SizedBox(height: 18),
                   Text('Menu', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 10),
-                  _buildMenuSection(),
+                  _buildMenuSection(context),
                   const SizedBox(height: 18),
                   Text('Highlights', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 10),
@@ -143,12 +147,14 @@ Future<void> _loadMenu() async {
                         .map((t) => Container(
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                               decoration: BoxDecoration(
-                                color: AppColors.chipBg,
+                                color: colors.chipBg,
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Text(t,
-                                  style: const TextStyle(
-                                      fontSize: 12.5, fontWeight: FontWeight.w600)),
+                                  style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: colors.navy)),
                             ))
                         .toList(),
                   ),
@@ -157,11 +163,11 @@ Future<void> _loadMenu() async {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      const Icon(Icons.place_outlined, size: 18, color: AppColors.muted),
+                      Icon(Icons.place_outlined, size: 18, color: colors.muted),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(r.address,
-                            style: const TextStyle(color: AppColors.navy, fontSize: 13.5)),
+                            style: TextStyle(color: colors.navy, fontSize: 13.5)),
                       ),
                     ],
                   ),
@@ -196,7 +202,10 @@ Future<void> _loadMenu() async {
     );
   }
 
-  Widget _buildMenuSection() {
+  Widget _buildMenuSection(BuildContext context) {
+    final colors = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     if (_menuItems == null) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 12),
@@ -207,12 +216,12 @@ Future<void> _loadMenu() async {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: AppColors.chipBg,
+          color: colors.chipBg,
           borderRadius: BorderRadius.circular(14),
         ),
-        child: const Text(
+        child: Text(
           'No menu items added yet.',
-          style: TextStyle(color: AppColors.muted, fontSize: 13),
+          style: TextStyle(color: colors.muted, fontSize: 13),
         ),
       );
     }
@@ -222,9 +231,10 @@ Future<void> _loadMenu() async {
           margin: const EdgeInsets.only(bottom: 10),
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: AppColors.card,
+            color: colors.card,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.border),
+            boxShadow: isDark ? null : AppShadows.soft,
+            border: Border.all(color: colors.border),
           ),
           child: Row(
             children: [
@@ -237,8 +247,8 @@ Future<void> _loadMenu() async {
                   fallback: Container(
                     width: 56,
                     height: 56,
-                    color: AppColors.chipBg,
-                    child: const Icon(Icons.restaurant, color: AppColors.muted),
+                    color: colors.chipBg,
+                    child: Icon(Icons.restaurant, color: colors.muted),
                   ),
                 ),
               ),
@@ -248,15 +258,18 @@ Future<void> _loadMenu() async {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(item.name,
-                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                        style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13.5,
+                            color: colors.navy)),
                     const SizedBox(height: 2),
                     Text('${item.calories} kcal',
-                        style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+                        style: TextStyle(color: colors.muted, fontSize: 12)),
                   ],
                 ),
               ),
               Text('₱${item.price.toStringAsFixed(0)}',
-                  style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.navy)),
+                  style: TextStyle(fontWeight: FontWeight.w800, color: colors.navy)),
             ],
           ),
         );
