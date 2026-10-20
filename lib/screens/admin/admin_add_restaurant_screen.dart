@@ -1,12 +1,13 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import '../../theme.dart';
+import '../../models.dart';
 import '../../services/firebase_service.dart';
-import '../../services/location_service.dart';
+import 'image_url_field.dart';
+import 'location_input.dart';
 
+/// Adds a restaurant, or edits one when [restaurant] is given.
 class AdminAddRestaurantScreen extends StatefulWidget {
-  const AdminAddRestaurantScreen({super.key});
+  final Restaurant? restaurant;
+  const AdminAddRestaurantScreen({super.key, this.restaurant});
 
   @override
   State<AdminAddRestaurantScreen> createState() => _AdminAddRestaurantScreenState();
@@ -20,17 +21,40 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
   final _descriptionCtrl = TextEditingController();
   final _tagsCtrl = TextEditingController();
   final _ratingCtrl = TextEditingController(text: '4.5');
+  final _imageCtrl = TextEditingController();
+  final _locationCtrl = TextEditingController();
 
   String _type = 'Restaurant';
   String _priceRange = '₱';
-  File? _photo;
-  double? _lat;
-  double? _lng;
-  bool _capturingLocation = false;
   bool _saving = false;
 
-  static const _types = ['Café', 'Restaurant', 'Karinderyá', 'Street food'];
-  static const _prices = ['₱', '₱₱', '₱₱₱'];
+  static const _baseTypes = ['Café', 'Restaurant', 'Karinderyá', 'Street food'];
+  static const _basePrices = ['₱', '₱₱', '₱₱₱'];
+
+  bool get _isEdit => widget.restaurant != null;
+
+  List<String> get _types =>
+      _baseTypes.contains(_type) ? _baseTypes : [..._baseTypes, _type];
+  List<String> get _prices =>
+      _basePrices.contains(_priceRange) ? _basePrices : [..._basePrices, _priceRange];
+
+  @override
+  void initState() {
+    super.initState();
+    final r = widget.restaurant;
+    if (r != null) {
+      _nameCtrl.text = r.name;
+      _cuisineCtrl.text = r.cuisine;
+      _addressCtrl.text = r.address;
+      _descriptionCtrl.text = r.description;
+      _tagsCtrl.text = r.tags.join(', ');
+      _ratingCtrl.text = r.rating.toString();
+      _imageCtrl.text = r.imageUrl ?? '';
+      _locationCtrl.text = '${r.latitude},${r.longitude}';
+      if (r.type.isNotEmpty) _type = r.type;
+      if (r.priceRange.isNotEmpty) _priceRange = r.priceRange;
+    }
+  }
 
   @override
   void dispose() {
@@ -40,85 +64,56 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
     _descriptionCtrl.dispose();
     _tagsCtrl.dispose();
     _ratingCtrl.dispose();
+    _imageCtrl.dispose();
+    _locationCtrl.dispose();
     super.dispose();
-  }
-
-  Future<void> _pickPhoto() async {
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined),
-              title: const Text('Take a photo'),
-              onTap: () => Navigator.of(context).pop(ImageSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Choose from gallery'),
-              onTap: () => Navigator.of(context).pop(ImageSource.gallery),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (source == null) return;
-    final picked = await ImagePicker().pickImage(source: source, imageQuality: 80);
-    if (picked != null) setState(() => _photo = File(picked.path));
-  }
-
-  Future<void> _captureLocation() async {
-    setState(() => _capturingLocation = true);
-    final pos = await LocationService.getCurrentLocation();
-    if (!mounted) return;
-    setState(() {
-      _capturingLocation = false;
-      if (pos != null) {
-        _lat = pos.latitude;
-        _lng = pos.longitude;
-      }
-    });
-    if (pos == null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not get your location — check location permission')),
-      );
-    }
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_lat == null || _lng == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tap "Capture current location" first')),
-      );
-      return;
-    }
+    final loc = parseLatLng(_locationCtrl.text);
+    if (loc == null) return;
+
+    final image = _imageCtrl.text.trim();
+    final tags = _tagsCtrl.text
+        .split(',')
+        .map((t) => t.trim())
+        .where((t) => t.isNotEmpty)
+        .toList();
+    final rating = double.tryParse(_ratingCtrl.text.trim()) ?? 4.5;
 
     setState(() => _saving = true);
     try {
-      String? imageUrl;
-      if (_photo != null) {
-        imageUrl = await FirebaseService.uploadImage(_photo!, 'restaurants');
+      if (_isEdit) {
+        await FirebaseService.updateRestaurant(
+          id: widget.restaurant!.id,
+          name: _nameCtrl.text.trim(),
+          type: _type,
+          cuisine: _cuisineCtrl.text.trim(),
+          priceRange: _priceRange,
+          rating: rating,
+          address: _addressCtrl.text.trim(),
+          description: _descriptionCtrl.text.trim(),
+          tags: tags,
+          latitude: loc.lat,
+          longitude: loc.lng,
+          imageUrl: image.isEmpty ? null : image,
+        );
+      } else {
+        await FirebaseService.addRestaurant(
+          name: _nameCtrl.text.trim(),
+          type: _type,
+          cuisine: _cuisineCtrl.text.trim(),
+          priceRange: _priceRange,
+          rating: rating,
+          address: _addressCtrl.text.trim(),
+          description: _descriptionCtrl.text.trim(),
+          tags: tags,
+          latitude: loc.lat,
+          longitude: loc.lng,
+          imageUrl: image.isEmpty ? null : image,
+        );
       }
-      await FirebaseService.addRestaurant(
-        name: _nameCtrl.text.trim(),
-        type: _type,
-        cuisine: _cuisineCtrl.text.trim(),
-        priceRange: _priceRange,
-        rating: double.tryParse(_ratingCtrl.text.trim()) ?? 4.5,
-        address: _addressCtrl.text.trim(),
-        description: _descriptionCtrl.text.trim(),
-        tags: _tagsCtrl.text
-            .split(',')
-            .map((t) => t.trim())
-            .where((t) => t.isNotEmpty)
-            .toList(),
-        latitude: _lat!,
-        longitude: _lng!,
-        imageUrl: imageUrl,
-      );
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
@@ -131,130 +126,145 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
     }
   }
 
+  Future<void> _delete() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete restaurant?'),
+        content: Text(
+            '"${widget.restaurant!.name}" and all of its menu items will be permanently deleted.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _saving = true);
+    try {
+      await FirebaseService.deleteRestaurant(widget.restaurant!.id);
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Add restaurant')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            GestureDetector(
-              onTap: _pickPhoto,
-              child: Container(
-                height: 160,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: AppColors.chipBg,
-                  borderRadius: BorderRadius.circular(16),
-                  image: _photo != null
-                      ? DecorationImage(image: FileImage(_photo!), fit: BoxFit.cover)
-                      : null,
-                ),
-                child: _photo == null
-                    ? const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.add_a_photo_outlined, color: AppColors.muted, size: 32),
-                            SizedBox(height: 8),
-                            Text('Add a cover photo', style: TextStyle(color: AppColors.muted)),
-                          ],
-                        ),
-                      )
-                    : null,
-              ),
+      appBar: AppBar(
+        title: Text(_isEdit ? 'Edit restaurant' : 'Add restaurant'),
+        actions: [
+          if (_isEdit)
+            IconButton(
+              tooltip: 'Delete restaurant',
+              onPressed: _saving ? null : _delete,
+              icon: const Icon(Icons.delete_outline),
             ),
-            const SizedBox(height: 20),
-            TextFormField(
-              controller: _nameCtrl,
-              decoration: const InputDecoration(labelText: 'Restaurant name'),
-              validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-            ),
-            const SizedBox(height: 14),
-            DropdownButtonFormField<String>(
-              initialValue: _type,
-              decoration: const InputDecoration(labelText: 'Establishment type'),
-              items: _types.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-              onChanged: (v) => setState(() => _type = v!),
-            ),
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: _cuisineCtrl,
-              decoration: const InputDecoration(labelText: 'Cuisine (e.g. Filipino, Bakery)'),
-              validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-            ),
-            const SizedBox(height: 14),
-            Row(
+        ],
+      ),
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 700),
+          child: Form(
+            key: _formKey,
+            child: ListView(
+              padding: const EdgeInsets.all(20),
               children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _priceRange,
-                    decoration: const InputDecoration(labelText: 'Price range'),
-                    items: _prices.map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
-                    onChanged: (v) => setState(() => _priceRange = v!),
+                ImageUrlField(controller: _imageCtrl),
+                const SizedBox(height: 20),
+                TextFormField(
+                  controller: _nameCtrl,
+                  decoration: const InputDecoration(labelText: 'Restaurant name'),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                const SizedBox(height: 14),
+                DropdownButtonFormField<String>(
+                  initialValue: _type,
+                  decoration: const InputDecoration(labelText: 'Establishment type'),
+                  items: _types
+                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                      .toList(),
+                  onChanged: (v) => setState(() => _type = v!),
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _cuisineCtrl,
+                  decoration:
+                      const InputDecoration(labelText: 'Cuisine (e.g. Filipino, Bakery)'),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _priceRange,
+                        decoration: const InputDecoration(labelText: 'Price range'),
+                        items: _prices
+                            .map((p) => DropdownMenuItem(value: p, child: Text(p)))
+                            .toList(),
+                        onChanged: (v) => setState(() => _priceRange = v!),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _ratingCtrl,
+                        decoration: const InputDecoration(labelText: 'Rating (1-5)'),
+                        keyboardType:
+                            const TextInputType.numberWithOptions(decimal: true),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _addressCtrl,
+                  decoration: const InputDecoration(labelText: 'Address'),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _descriptionCtrl,
+                  decoration: const InputDecoration(labelText: 'Short description'),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _tagsCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Tags (comma-separated)',
+                    hintText: 'Budget-friendly, Halal, Breakfast',
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextFormField(
-                    controller: _ratingCtrl,
-                    decoration: const InputDecoration(labelText: 'Rating (1-5)'),
-                    keyboardType: TextInputType.number,
-                  ),
+                const SizedBox(height: 14),
+                LocationField(controller: _locationCtrl),
+                const SizedBox(height: 28),
+                ElevatedButton(
+                  onPressed: _saving ? null : _save,
+                  child: _saving
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2.4, color: Colors.white))
+                      : Text(_isEdit ? 'Save changes' : 'Save restaurant'),
                 ),
+                const SizedBox(height: 20),
               ],
             ),
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: _addressCtrl,
-              decoration: const InputDecoration(labelText: 'Address'),
-              validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-            ),
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: _descriptionCtrl,
-              decoration: const InputDecoration(labelText: 'Short description'),
-              maxLines: 2,
-            ),
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: _tagsCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Tags (comma-separated)',
-                hintText: 'Budget-friendly, Halal, Breakfast',
-              ),
-            ),
-            const SizedBox(height: 20),
-            OutlinedButton.icon(
-              onPressed: _capturingLocation ? null : _captureLocation,
-              icon: _capturingLocation
-                  ? const SizedBox(
-                      width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.my_location),
-              label: Text(
-                _lat != null
-                    ? 'Location captured (${_lat!.toStringAsFixed(4)}, ${_lng!.toStringAsFixed(4)})'
-                    : 'Capture current location',
-              ),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Stand at (or near) the restaurant, then tap the button above — '
-              'this records its real map position.',
-              style: TextStyle(fontSize: 12, color: AppColors.muted),
-            ),
-            const SizedBox(height: 28),
-            ElevatedButton(
-              onPressed: _saving ? null : _save,
-              child: _saving
-                  ? const SizedBox(
-                      width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
-                  : const Text('Save restaurant'),
-            ),
-            const SizedBox(height: 20),
-          ],
+          ),
         ),
       ),
     );

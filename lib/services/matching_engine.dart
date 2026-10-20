@@ -90,6 +90,23 @@ class MatchingEngine {
     return 3;
   }
 
+  /// Hard requirements for putting a dish in the meal plan at all.
+  /// Unlike scoring, these are pass/fail:
+  ///   - the dish must not cost more than the user's per-meal budget
+  ///   - the dish must carry a dietary tag for EVERY restriction the user
+  ///     picked (an untagged dish can't be verified, so it is excluded)
+  static bool _fitsProfile(UserProfile profile, MenuItem item) {
+    if (item.price > profile.maxBudget) return false;
+
+    if (profile.dietaryRestrictions.isNotEmpty) {
+      final tags = item.dietaryTags.map((t) => t.toLowerCase().trim()).toSet();
+      for (final restriction in profile.dietaryRestrictions) {
+        if (!tags.contains(restriction.toLowerCase().trim())) return false;
+      }
+    }
+    return true;
+  }
+
   /// Scores an individual menu item against the profile — used when
   /// generating the meal plan, so real dishes get picked based on how
   /// well they fit calories, budget, and dietary restrictions rather
@@ -133,8 +150,10 @@ class MatchingEngine {
 
   /// Builds a full 7-day meal plan from real menu items, picking — for
   /// each day/slot — randomly among the top 3 highest-scoring items
-  /// tagged for that slot (scored via [scoreMenuItem]). Slots with no
-  /// tagged items yet are left empty so the user can log manually.
+  /// tagged for that slot (scored via [scoreMenuItem]). Dishes that break
+  /// the user's dietary restrictions or budget are filtered out first
+  /// (see [_fitsProfile]). Slots with no qualifying dish are left empty
+  /// so the user can log manually.
   static List<DayPlan> buildMealPlan(
     UserProfile profile,
     List<MenuItem> allItems,
@@ -151,6 +170,7 @@ class MatchingEngine {
             .where((i) => i.mealTypes
                 .map((m) => m.toLowerCase())
                 .contains(slot.label.toLowerCase()))
+            .where((i) => _fitsProfile(profile, i))
             .toList();
 
         if (candidates.isEmpty) {

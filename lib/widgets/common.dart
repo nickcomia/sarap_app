@@ -37,7 +37,10 @@ class SmartImage extends StatelessWidget {
         memCacheWidth: width == null ? null : (width! * 3).round(),
         fadeInDuration: const Duration(milliseconds: 150),
         placeholder: (_, __) => fallback,
-        errorWidget: (_, __, ___) => fallback,
+   errorWidget: (_, url, error) {
+     debugPrint('IMAGE FAIL: $url -> $error');
+     return fallback;
+   },
       );
     }
     return Image.asset(

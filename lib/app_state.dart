@@ -370,7 +370,10 @@ class AppState extends ChangeNotifier {
     final allItems = await FirebaseService.fetchAllMenuItems().catchError((_) => <MenuItem>[]);
 
     if (allItems.isEmpty) {
-      mealPlan = MockData.generateMealPlan(profile, restaurants);
+      // No real menu data yet: leave every slot empty rather than
+      // inventing dishes that can't be checked against diet or budget.
+      mealPlan = [];
+      ensureEmptyMealPlanIfNeeded();
     } else {
       final namesById = {for (final r in restaurants) r.id: r.name};
       mealPlan = MatchingEngine.buildMealPlan(profile, allItems, namesById);

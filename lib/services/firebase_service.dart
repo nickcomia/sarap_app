@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'cache_first.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -253,7 +254,10 @@ class FirebaseService {
   // Restaurants
   // ------------------------------------------------------------------
 
-  static Future<List<Restaurant>> fetchRestaurants({bool forceServer = false}) async {
+  static Future<List<Restaurant>> fetchRestaurants({
+    bool forceServer = false,
+    bool includeUnavailable = false,
+  }) async {
     final query = _db.collection('restaurants');
     final snap = forceServer ? await query.get() : await getCacheFirst(query);
 
@@ -266,7 +270,10 @@ class FirebaseService {
       return reseeded.docs.map(_restaurantFromDoc).toList();
     }
 
-    return snap.docs.map(_restaurantFromDoc).toList();
+    return snap.docs
+        .where((d) => includeUnavailable || d.data()['available'] != false)
+        .map(_restaurantFromDoc)
+        .toList();
   }
 
   static Restaurant _restaurantFromDoc(QueryDocumentSnapshot<Map<String, dynamic>> d) {
@@ -324,6 +331,15 @@ class FirebaseService {
     final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
     final ref = _storage.ref().child('$folder/$fileName');
     await ref.putFile(file);
+    return await ref.getDownloadURL();
+  }
+
+  /// Same as uploadImage, but takes raw bytes so it also works on web
+  /// (dart:io File is not available in browsers).
+  static Future<String> uploadImageBytes(Uint8List bytes, String folder) async {
+    final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final ref = _storage.ref().child('$folder/$fileName');
+    await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
     return await ref.getDownloadURL();
   }
 
@@ -388,13 +404,18 @@ class FirebaseService {
     });
   }
 
-  static Future<List<MenuItem>> fetchMenuItems(String restaurantId) async {
+  static Future<List<MenuItem>> fetchMenuItems(
+    String restaurantId, {
+    bool includeUnavailable = false,
+  }) async {
     final snap = await _db
         .collection('restaurants')
         .doc(restaurantId)
         .collection('menuItems')
         .get();
-    return snap.docs.map((d) {
+    return snap.docs
+        .where((d) => includeUnavailable || d.data()['available'] != false)
+        .map((d) {
       final m = d.data();
       return MenuItem(
         id: d.id,
@@ -416,7 +437,9 @@ class FirebaseService {
   /// them locally if needed.
   static Future<List<MenuItem>> fetchAllMenuItems() async {
     final snap = await _db.collectionGroup('menuItems').get();
-    return snap.docs.map((d) {
+    return snap.docs
+        .where((d) => d.data()['available'] != false)
+        .map((d) {
       final m = d.data();
       final restaurantId = d.reference.parent.parent!.id;
       return MenuItem(
@@ -430,6 +453,115 @@ class FirebaseService {
         imageUrl: m['imageUrl'],
       );
     }).toList();
+  }
+
+  // ---- Admin: availability, edit, delete ----
+
+  /// restaurantId -> visible in the app? (missing field counts as visible)
+  static Future<Map<String, bool>> fetchRestaurantAvailability() async {
+    final snap = await _db.collection('restaurants').get();
+    return {for (final d in snap.docs) d.id: d.data()['available'] != false};
+  }
+
+  /// menuItemId -> visible in the app? (missing field counts as visible)
+  static Future<Map<String, bool>> fetchMenuItemAvailability(
+      String restaurantId) async {
+    final snap = await _db
+        .collection('restaurants')
+        .doc(restaurantId)
+        .collection('menuItems')
+        .get();
+    return {for (final d in snap.docs) d.id: d.data()['available'] != false};
+  }
+
+  static Future<void> setRestaurantAvailable(String id, bool available) async {
+    await _db.collection('restaurants').doc(id).update({'available': available});
+  }
+
+  static Future<void> setMenuItemAvailable(
+      String restaurantId, String itemId, bool available) async {
+    await _db
+        .collection('restaurants')
+        .doc(restaurantId)
+        .collection('menuItems')
+        .doc(itemId)
+        .update({'available': available});
+  }
+
+  static Future<void> updateRestaurant({
+    required String id,
+    required String name,
+    required String type,
+    required String cuisine,
+    required String priceRange,
+    required double rating,
+    required String address,
+    required String description,
+    required List<String> tags,
+    required double latitude,
+    required double longitude,
+    String? imageUrl,
+  }) async {
+    await _db.collection('restaurants').doc(id).update({
+      'name': name,
+      'type': type,
+      'cuisine': cuisine,
+      'priceRange': priceRange,
+      'rating': rating,
+      'address': address,
+      'description': description,
+      'tags': tags,
+      'latitude': latitude,
+      'longitude': longitude,
+      'imageUrl': imageUrl,
+    });
+  }
+
+  /// Deletes a restaurant AND its menu items (Firestore does not delete
+  /// sub-collections automatically).
+  static Future<void> deleteRestaurant(String id) async {
+    final ref = _db.collection('restaurants').doc(id);
+    final items = await ref.collection('menuItems').get();
+    final batch = _db.batch();
+    for (final d in items.docs) {
+      batch.delete(d.reference);
+    }
+    batch.delete(ref);
+    await batch.commit();
+  }
+
+  static Future<void> updateMenuItem({
+    required String restaurantId,
+    required String itemId,
+    required String name,
+    required double price,
+    required int calories,
+    required List<String> mealTypes,
+    required List<String> dietaryTags,
+    String? imageUrl,
+  }) async {
+    await _db
+        .collection('restaurants')
+        .doc(restaurantId)
+        .collection('menuItems')
+        .doc(itemId)
+        .update({
+      'name': name,
+      'price': price,
+      'calories': calories,
+      'mealTypes': mealTypes,
+      'dietaryTags': dietaryTags,
+      'imageUrl': imageUrl,
+    });
+  }
+
+  static Future<void> deleteMenuItem(String restaurantId, String itemId) async {
+    await _db
+        .collection('restaurants')
+        .doc(restaurantId)
+        .collection('menuItems')
+        .doc(itemId)
+        .delete();
   }
 
   /// Numeric Firestore fields sometimes get entered as strings (e.g. via
