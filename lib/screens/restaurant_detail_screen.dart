@@ -8,6 +8,7 @@ import '../widgets/common.dart';
 
 /// Figure 14: Restaurant / Establishment Detail Screen.
 /// (1) Back arrow, (2) heart/save button, (3) "Get directions" button.
+/// Each menu item also has an "Add to meal plan" button.
 class RestaurantDetailScreen extends StatefulWidget {
   final Restaurant restaurant;
   const RestaurantDetailScreen({super.key, required this.restaurant});
@@ -18,6 +19,9 @@ class RestaurantDetailScreen extends StatefulWidget {
 
 class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
   List<MenuItem>? _menuItems;
+  bool _adding = false;
+
+  static const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   @override
   void initState() {
@@ -35,6 +39,91 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
       debugPrint('$st');
       if (mounted) setState(() => _menuItems = []);
     }
+  }
+
+  /// Lets the user choose a day and meal slot for [item], then adds it to
+  /// the meal plan if it passes the planner's rules (local, valid
+  /// price/calories, budget, dietary restrictions, remaining calories).
+  Future<void> _addToPlan(MenuItem item) async {
+    if (_adding) return;
+
+    var dayIndex = 0;
+    var slot = MealSlot.values.firstWhere(
+      (s) => item.mealTypes
+          .map((m) => m.toLowerCase().trim())
+          .contains(s.label.toLowerCase()),
+      orElse: () => MealSlot.lunch,
+    );
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text('Add to meal plan'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${item.name} • ${item.calories} kcal',
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 14),
+                DropdownButtonFormField<int>(
+                  initialValue: dayIndex,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                      labelText: 'Day', border: OutlineInputBorder()),
+                  items: [
+                    for (var i = 0; i < _days.length; i++)
+                      DropdownMenuItem(value: i, child: Text(_days[i])),
+                  ],
+                  onChanged: (v) => setLocal(() => dayIndex = v ?? 0),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<MealSlot>(
+                  initialValue: slot,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                      labelText: 'Meal', border: OutlineInputBorder()),
+                  items: [
+                    for (final s in MealSlot.values)
+                      DropdownMenuItem(value: s, child: Text(s.label)),
+                  ],
+                  onChanged: (v) => setLocal(() => slot = v ?? slot),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'If that meal already has a dish, it will be replaced.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Add'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _adding = true);
+    final problem = await AppState.instance
+        .addMenuItemToPlan(item, widget.restaurant, dayIndex, slot);
+    if (!mounted) return;
+    setState(() => _adding = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(problem ??
+          'Added ${item.name} to ${_days[dayIndex]} ${slot.label.toLowerCase()}'),
+    ));
   }
 
   @override
@@ -263,13 +352,21 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                             fontSize: 13.5,
                             color: colors.navy)),
                     const SizedBox(height: 2),
-                    Text('${item.calories} kcal',
+                    Text(
+                        item.calories > 0
+                            ? '${item.calories} kcal'
+                            : 'Calories not available',
                         style: TextStyle(color: colors.muted, fontSize: 12)),
                   ],
                 ),
               ),
               Text('₱${item.price.toStringAsFixed(0)}',
                   style: TextStyle(fontWeight: FontWeight.w800, color: colors.navy)),
+              IconButton(
+                tooltip: 'Add to meal plan',
+                onPressed: _adding ? null : () => _addToPlan(item),
+                icon: Icon(Icons.add_circle_outline, color: colors.primaryDark),
+              ),
             ],
           ),
         );

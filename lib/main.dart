@@ -6,6 +6,7 @@ import 'firebase_options.dart';
 import 'theme.dart';
 import 'screens/splash_screen.dart';
 import 'screens/home_shell.dart';
+import 'screens/onboarding/onboarding_flow.dart';
 import 'services/notification_service.dart';
 import 'services/firebase_service.dart';
 import 'app_state.dart';
@@ -32,20 +33,39 @@ void main() async {
   // unless this runs. Without it, a returning logged-in user sees demo
   // data ("Juan Dela Cruz", default BMI) instead of their own every time
   // they reopen the app.
+  var onboardingDone = true;
   if (FirebaseService.currentUid != null) {
     await AppState.instance.loadCurrentUserIfLoggedIn();
+    // A logged-in user who closed the app mid-onboarding must resume it
+    // rather than land on the Home feed (TC-034). If the check fails
+    // (e.g. offline), let them in rather than lock them out.
+    try {
+      onboardingDone = await FirebaseService.isOnboardingComplete();
+    } catch (_) {
+      onboardingDone = true;
+    }
   } else {
     AppState.instance.loadRestaurantsFromServer();
   }
 
-  runApp(const SarapApp());
+  runApp(SarapApp(onboardingDone: onboardingDone));
 }
 
 class SarapApp extends StatelessWidget {
-  const SarapApp({super.key});
+  final bool onboardingDone;
+  const SarapApp({super.key, this.onboardingDone = true});
 
   @override
   Widget build(BuildContext context) {
+    final Widget startScreen;
+    if (FirebaseService.currentUid == null) {
+      startScreen = const SplashScreen();
+    } else if (!onboardingDone) {
+      startScreen = const OnboardingFlow();
+    } else {
+      startScreen = const HomeShell();
+    }
+
     return ListenableBuilder(
       listenable: AppState.instance,
       builder: (context, _) {
@@ -55,9 +75,7 @@ class SarapApp extends StatelessWidget {
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: AppState.instance.themeMode,
-          home: FirebaseService.currentUid != null
-              ? const HomeShell()
-              : const SplashScreen(),
+          home: startScreen,
         );
       },
     );

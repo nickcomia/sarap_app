@@ -194,11 +194,17 @@ class _AuthScreenState extends State<AuthScreen> {
         email: state.profile.email,
       );
 
+      // Load THIS account's saved health data and preferences first, so the
+      // calorie target never falls back to placeholder defaults.
+      await state.loadProfileFromServer();
+
       // Decide by the saved onboarding flag, not "is new user" (TC-028/034).
       final done = await FirebaseService.isOnboardingComplete();
       if (!mounted) return;
 
       if (!done) {
+        // Unfinished account: nothing real is saved yet, so don't trust defaults.
+        state.missingHealthFields = ['age', 'height', 'weight'];
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const OnboardingFlow()),
           (route) => false,

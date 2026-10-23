@@ -93,6 +93,13 @@ class UserProfile {
 
   UserProfile({this.name = 'Juan Dela Cruz', this.email = ''});
 
+  /// True only when age, height and weight are all within believable ranges.
+  /// Used by AppState to decide whether a calorie target can be trusted.
+  bool get hasValidHealthData =>
+      age >= 10 && age <= 100 &&
+      heightCm >= 100 && heightCm <= 250 &&
+      weightKg >= 25 && weightKg <= 300;
+
   double get bmi {
     final heightM = heightCm / 100;
     if (heightM <= 0) return 0;

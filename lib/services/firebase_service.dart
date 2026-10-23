@@ -409,6 +409,17 @@ class FirebaseService {
     return doc.id;
   }
 
+  /// Rejects menu values that would break calorie arithmetic or create a
+  /// "free" meal. Throws [ApiException] with a message safe to show.
+  static void _validateMenuValues({double? price, int? calories}) {
+    if (price != null && (!price.isFinite || price <= 0)) {
+      throw ApiException('Enter a price greater than 0');
+    }
+    if (calories != null && (calories <= 0 || calories > 10000)) {
+      throw ApiException('Enter calories between 1 and 10000');
+    }
+  }
+
   /// Adds a menu item (dish/product) under a restaurant, with its own
   /// photo. Stored at restaurants/{restaurantId}/menuItems/{itemId}.
   static Future<void> addMenuItem({
@@ -420,6 +431,7 @@ class FirebaseService {
     required List<String> dietaryTags,
     String? imageUrl,
   }) async {
+    _validateMenuValues(price: price, calories: calories);
     await _db
         .collection('restaurants')
         .doc(restaurantId)
@@ -571,6 +583,7 @@ class FirebaseService {
     required List<String> dietaryTags,
     String? imageUrl,
   }) async {
+    _validateMenuValues(price: price, calories: calories);
     await _db
         .collection('restaurants')
         .doc(restaurantId)
@@ -729,6 +742,7 @@ class FirebaseService {
     double? carbsG,
     double? fatG,
   }) async {
+    _validateMenuValues(calories: calories);
     await _db
         .collection('restaurants')
         .doc(restaurantId)
@@ -797,13 +811,17 @@ class FirebaseService {
   // Meal plan
   // ------------------------------------------------------------------
 
+  /// Replaces the whole saved plan in one atomic batch. Slot documents have
+  /// fixed ids (day_slot), so running this twice can never leave duplicates.
+  /// The existing docs are read from the SERVER on purpose: offline this
+  /// throws instead of silently queuing a write that would land later.
   static Future<void> saveMealPlan(List<DayPlan> plan) async {
     final uid = currentUid;
     if (uid == null) return;
     final col = _db.collection('users').doc(uid).collection('mealPlan');
 
     final batch = _db.batch();
-    final existing = await col.get();
+    final existing = await col.get(const GetOptions(source: Source.server));
     for (final d in existing.docs) {
       batch.delete(d.reference);
     }
@@ -830,6 +848,10 @@ class FirebaseService {
     return snap.docs.map((d) => d.data()).toList();
   }
 
+  /// Writes one slot. Done as a transaction so it only succeeds when the
+  /// server actually accepted it: offline or on timeout it throws, and the
+  /// app then leaves the on-screen meal unchanged. The doc id is fixed
+  /// (day_slot), so a retry overwrites the same slot — never adds a second.
   static Future<void> replaceMeal({
     required String dayLabel,
     required MealSlot slot,
@@ -840,13 +862,16 @@ class FirebaseService {
     final uid = currentUid;
     if (uid == null) return;
     final id = '${dayLabel}_${slot.name}';
-    await _db.collection('users').doc(uid).collection('mealPlan').doc(id).set({
-      'dayLabel': dayLabel,
-      'slot': slot.name,
-      'dishName': dishName,
-      'restaurantName': restaurantName,
-      'calories': calories,
-    });
+    final ref = _db.collection('users').doc(uid).collection('mealPlan').doc(id);
+    await _db.runTransaction((tx) async {
+      tx.set(ref, {
+        'dayLabel': dayLabel,
+        'slot': slot.name,
+        'dishName': dishName,
+        'restaurantName': restaurantName,
+        'calories': calories,
+      });
+    }, timeout: const Duration(seconds: 10));
   }
 
   // ------------------------------------------------------------------

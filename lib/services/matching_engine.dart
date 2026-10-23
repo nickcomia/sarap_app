@@ -20,6 +20,12 @@ import '../models.dart';
 class MatchingEngine {
   static const _priceRankMap = {'₱': 1, '₱₱': 2, '₱₱₱': 3};
 
+  /// Assumption pending clarification MP-CL-01: a swapped-in dish may differ
+  /// from the dish it replaces by at most this fraction of that dish's
+  /// calories (e.g. 400 kcal -> 300..500 kcal). Change here if the approved
+  /// swap policy is different.
+  static const double swapCalorieTolerance = 0.25;
+
   /// Recomputes matchPercent for every restaurant in [restaurants] against
   /// [profile], mutating each Restaurant.matchPercent in place. Call this
   /// after onboarding, after a profile edit, or after loading new
@@ -90,21 +96,109 @@ class MatchingEngine {
     return 3;
   }
 
-  /// Hard requirements for putting a dish in the meal plan at all.
-  /// Unlike scoring, these are pass/fail:
-  ///   - the dish must not cost more than the user's per-meal budget
-  ///   - the dish must carry a dietary tag for EVERY restriction the user
-  ///     picked (an untagged dish can't be verified, so it is excluded)
-  static bool _fitsProfile(UserProfile profile, MenuItem item) {
-    if (item.price > profile.maxBudget) return false;
+  // ------------------------------------------------------------------
+  // Hard eligibility rules for the meal plan (pass/fail, not scored)
+  // ------------------------------------------------------------------
 
-    if (profile.dietaryRestrictions.isNotEmpty) {
-      final tags = item.dietaryTags.map((t) => t.toLowerCase().trim()).toSet();
-      for (final restriction in profile.dietaryRestrictions) {
-        if (!tags.contains(restriction.toLowerCase().trim())) return false;
-      }
+  /// The per-meal price ceiling. The slider's top value means "₱500+",
+  /// i.e. no ceiling at all.
+  static double? _budgetCap(UserProfile profile) =>
+      profile.maxBudget >= 500 ? null : profile.maxBudget;
+
+  /// A dish needs a real price and calorie figure to be plannable. A
+  /// missing price (read as 0) must never turn into a "free" meal, and a
+  /// missing, zero, negative or absurd calorie value must never reach the
+  /// calorie arithmetic.
+  static bool _isUsable(MenuItem item) =>
+      item.price.isFinite &&
+      item.price > 0 &&
+      item.calories > 0 &&
+      item.calories <= 10000;
+
+  static bool isUsable(MenuItem item) => _isUsable(item);
+
+  static bool _withinBudget(UserProfile profile, MenuItem item) {
+    final cap = _budgetCap(profile);
+    return cap == null || item.price <= cap;
+  }
+
+  /// Every restriction the user picked must appear as a dietary tag on the
+  /// dish. An untagged dish can't be verified, so it is excluded.
+  static bool _meetsDiet(UserProfile profile, MenuItem item) {
+    if (profile.dietaryRestrictions.isEmpty) return true;
+    final tags = item.dietaryTags.map((t) => t.toLowerCase().trim()).toSet();
+    for (final restriction in profile.dietaryRestrictions) {
+      if (!tags.contains(restriction.toLowerCase().trim())) return false;
     }
     return true;
+  }
+
+  static bool _fitsProfile(UserProfile profile, MenuItem item) =>
+      _isUsable(item) && _withinBudget(profile, item) && _meetsDiet(profile, item);
+
+  /// True when the dish has a valid price/calories and satisfies the
+  /// user's budget and dietary restrictions.
+  static bool fitsProfile(UserProfile profile, MenuItem item) =>
+      _fitsProfile(profile, item);
+
+  static bool _tagsSlot(MenuItem item, MealSlot slot) => item.mealTypes
+      .map((m) => m.toLowerCase().trim())
+      .contains(slot.label.toLowerCase());
+
+  /// Dishes that may be offered for [slot]: tagged for that meal time,
+  /// valid, within budget and diet, and — when given — inside a calorie
+  /// range. Both bounds are INCLUSIVE, so a 600 kcal dish fits a 600 kcal
+  /// allowance and a 601 kcal dish does not.
+  static List<MenuItem> eligibleForSlot(
+    UserProfile profile,
+    List<MenuItem> items,
+    MealSlot slot, {
+    int? minCalories,
+    int? maxCalories,
+    String? excludeDish,
+  }) {
+    return items.where((i) {
+      if (!_tagsSlot(i, slot)) return false;
+      if (!_fitsProfile(profile, i)) return false;
+      if (minCalories != null && i.calories < minCalories) return false;
+      if (maxCalories != null && i.calories > maxCalories) return false;
+      if (excludeDish != null && i.name == excludeDish) return false;
+      return true;
+    }).toList();
+  }
+
+  /// Plain-language reason why nothing could be planned. Shown on the
+  /// Meal Plan screen so the user can fix the cause (budget, restrictions).
+  static String explainNoMatches(UserProfile profile, List<MenuItem> items) {
+    final usable = items.where(_isUsable).toList();
+    if (usable.isEmpty) {
+      return 'No local menu items with a price and calories are available yet.';
+    }
+
+    final tagged = usable
+        .where((i) => MealSlot.values.any((s) => _tagsSlot(i, s)))
+        .toList();
+    if (tagged.isEmpty) {
+      return 'Menu items are not tagged with meal times yet, so no plan can be built.';
+    }
+
+    final inBudget = tagged.where((i) => _withinBudget(profile, i)).toList();
+    if (inBudget.isEmpty) {
+      return 'No meals fit your budget of ₱${profile.maxBudget.round()} per meal. '
+          'Try raising your budget in your profile.';
+    }
+
+    if (profile.dietaryRestrictions.isNotEmpty) {
+      final dietOk = tagged.where((i) => _meetsDiet(profile, i)).toList();
+      if (dietOk.isEmpty) {
+        return 'No meals are verified for your dietary restrictions '
+            '(${profile.dietaryRestrictions.join(', ')}). '
+            'Try changing your restrictions in your profile.';
+      }
+    }
+
+    return 'No meals match your budget and dietary restrictions together. '
+        'Try relaxing one of them.';
   }
 
   /// Scores an individual menu item against the profile — used when
@@ -120,11 +214,8 @@ class MatchingEngine {
     score += (50 - (calorieDiff / calorieTargetForSlot * 50)).clamp(0, 50);
 
     // Budget fit (0-30)
-    if (item.price <= profile.maxBudget) {
+    if (_withinBudget(profile, item)) {
       score += 30;
-    } else {
-      final overRatio = (item.price - profile.maxBudget) / profile.maxBudget;
-      score += (30 - overRatio * 30).clamp(0, 30);
     }
 
     // Dietary compliance (0-20)
@@ -148,12 +239,52 @@ class MatchingEngine {
     MealSlot.dinner: 0.30,
   };
 
-  /// Builds a full 7-day meal plan from real menu items, picking — for
-  /// each day/slot — randomly among the top 3 highest-scoring items
-  /// tagged for that slot (scored via [scoreMenuItem]). Dishes that break
-  /// the user's dietary restrictions or budget are filtered out first
-  /// (see [_fitsProfile]). Slots with no qualifying dish are left empty
-  /// so the user can log manually.
+  /// Picks one dish for [slot] — randomly among the top 3 highest-scoring
+  /// eligible items tagged for that slot. Returns null when nothing
+  /// qualifies, so the caller can leave the slot empty instead of
+  /// inventing a meal. [excludeDish] avoids repeating the current dish
+  /// when the user asks for a replacement.
+  static MealEntry? pickForSlot(
+    UserProfile profile,
+    List<MenuItem> allItems,
+    Map<String, String> restaurantNamesById,
+    MealSlot slot, {
+    String? excludeDish,
+    Random? random,
+  }) {
+    final rand = random ?? Random();
+    final target = profile.dailyCalorieTarget.clamp(1200, 4000);
+    final calTarget = (target * _slotCalorieFraction[slot]!).round();
+
+    var candidates = allItems
+        .where((i) => _tagsSlot(i, slot))
+        .where((i) => _fitsProfile(profile, i))
+        .toList();
+
+    if (excludeDish != null) {
+      final others = candidates.where((i) => i.name != excludeDish).toList();
+      if (others.isEmpty) return null;
+      candidates = others;
+    }
+    if (candidates.isEmpty) return null;
+
+    candidates.sort((a, b) => scoreMenuItem(profile, b, calTarget)
+        .compareTo(scoreMenuItem(profile, a, calTarget)));
+    final topPicks = candidates.take(3).toList();
+    final chosen = topPicks[rand.nextInt(topPicks.length)];
+
+    return MealEntry(
+      slot: slot,
+      dishName: chosen.name,
+      restaurantName: restaurantNamesById[chosen.restaurantId] ?? 'Unknown',
+      calories: chosen.calories,
+    );
+  }
+
+  /// Builds a full 7-day meal plan from real menu items. Dishes that
+  /// break the user's dietary restrictions or budget are filtered out
+  /// first (see [_fitsProfile]). Slots with no qualifying dish are left
+  /// empty so the user can log manually.
   static List<DayPlan> buildMealPlan(
     UserProfile profile,
     List<MenuItem> allItems,
@@ -161,35 +292,13 @@ class MatchingEngine {
   ) {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final rand = Random();
-    final target = profile.dailyCalorieTarget.clamp(1200, 4000);
 
     return days.map((day) {
       final meals = MealSlot.values.map((slot) {
-        final calTarget = (target * _slotCalorieFraction[slot]!).round();
-        final candidates = allItems
-            .where((i) => i.mealTypes
-                .map((m) => m.toLowerCase())
-                .contains(slot.label.toLowerCase()))
-            .where((i) => _fitsProfile(profile, i))
-            .toList();
-
-        if (candidates.isEmpty) {
-          return MealEntry(slot: slot);
-        }
-
-        candidates.sort((a, b) => scoreMenuItem(profile, b, calTarget)
-            .compareTo(scoreMenuItem(profile, a, calTarget)));
-        final topPicks = candidates.take(3).toList();
-        final chosen = topPicks[rand.nextInt(topPicks.length)];
-
-        return MealEntry(
-          slot: slot,
-          dishName: chosen.name,
-          restaurantName: restaurantNamesById[chosen.restaurantId] ?? 'Unknown',
-          calories: chosen.calories,
-        );
+        return pickForSlot(profile, allItems, restaurantNamesById, slot,
+                random: rand) ??
+            MealEntry(slot: slot);
       }).toList();
-
       return DayPlan(dayLabel: day, meals: meals);
     }).toList();
   }
