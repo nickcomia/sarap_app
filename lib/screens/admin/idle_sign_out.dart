@@ -11,7 +11,7 @@ class IdleSignOut extends StatefulWidget {
   const IdleSignOut({
     super.key,
     required this.child,
-    this.timeout = const Duration(minutes: 15),
+    this.timeout = const Duration(minutes: 60),
   });
 
   @override
