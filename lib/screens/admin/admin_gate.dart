@@ -4,11 +4,12 @@ import '../../services/admin_service.dart';
 import '../../theme.dart';
 import 'admin_home_screen.dart';
 import 'admin_login_screen.dart';
+import 'idle_sign_out.dart';
 
 /// Decides what the admin site shows:
 ///   signed out            -> login
 ///   signed in, not admin  -> "not authorized" with a sign-out button
-///   signed in, admin      -> dashboard
+///   signed in, admin      -> dashboard (signs out after 15 minutes idle)
 class AdminGate extends StatelessWidget {
   const AdminGate({super.key});
 
@@ -48,7 +49,9 @@ class _AdminCheckState extends State<_AdminCheck> {
         if (snap.connectionState != ConnectionState.done) {
           return const _Loading();
         }
-        if (snap.data == true) return const AdminHomeScreen();
+        if (snap.data == true) {
+          return const IdleSignOut(child: AdminHomeScreen());
+        }
         return _NotAuthorized(email: widget.email);
       },
     );

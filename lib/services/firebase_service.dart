@@ -119,7 +119,17 @@ class FirebaseService {
   /// Whether the currently signed-in user's email is verified. Returns
   /// true for providers that don't need this check (e.g. there's no
   /// signed-in user at all — caller should check isLoggedIn separately).
-  static bool get isEmailVerified => _auth.currentUser?.emailVerified ?? false;
+  static bool get isEmailVerified {
+    final user = _auth.currentUser;
+    if (user == null) return false;
+    // Only email/password accounts need email verification. Google and
+    // Facebook accounts are already verified by the provider (Facebook
+    // users otherwise show emailVerified == false and would be signed
+    // out on every app start).
+    final usesPassword =
+        user.providerData.any((p) => p.providerId == 'password');
+    return !usesPassword || user.emailVerified;
+  }
 
   /// Resends Firebase's built-in email verification link to the current
   /// user. No-op if already verified or not logged in.

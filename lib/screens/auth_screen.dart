@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../services/firebase_service.dart';
@@ -9,8 +10,8 @@ import 'home_shell.dart';
 
 /// Figure 8: Sign In / Register Screen.
 /// Tabs switch between the login view and account-creation view; includes
-/// email/password fields, a show/hide password toggle, and "Continue with
-/// Google".
+/// email/password fields, a show/hide password toggle, "Continue with
+/// Google" and "Continue with Facebook".
 class AuthScreen extends StatefulWidget {
   final bool startOnRegister;
   const AuthScreen({super.key, this.startOnRegister = false});
@@ -105,6 +106,8 @@ class _AuthScreenState extends State<AuthScreen> {
         final done = await FirebaseService.isOnboardingComplete();
         if (!mounted) return;
         if (!done) {
+          // Nothing real is saved yet, so placeholder defaults must not count.
+          state.missingHealthFields = ['age', 'height', 'weight'];
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(builder: (_) => const OnboardingFlow()),
             (route) => false,
@@ -161,6 +164,71 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
+  /// Shared by Google and Facebook once Firebase has accepted the credential:
+  /// saves name/email, loads THIS account's saved profile (so the calorie
+  /// target never uses placeholder defaults), then routes to onboarding or
+  /// Home depending on the saved onboarding flag.
+  Future<void> _finishSocialSignIn({
+    required String? displayName,
+    required String? email,
+  }) async {
+    final state = AppState.instance;
+
+    // Never let a previous account's plan linger while this one loads.
+    state.mealPlan = [];
+    state.planMessage = null;
+
+    // Always reflect the real account details.
+    final name = (displayName != null && displayName.trim().isNotEmpty)
+        ? displayName.trim()
+        : state.profile.name;
+    state.profile.name = name;
+    state.profile.email = email ?? '';
+    state.refresh();
+
+    // Persist name/email (and create the profile doc for new users).
+    await FirebaseService.syncGoogleUserDoc(
+      name: state.profile.name,
+      email: state.profile.email,
+    );
+
+    // Load this account's saved health data and preferences first.
+    await state.loadProfileFromServer();
+
+    // Decide by the saved onboarding flag, not "is new user" (TC-028/034).
+    final done = await FirebaseService.isOnboardingComplete();
+    if (!mounted) return;
+
+    if (!done) {
+      // Unfinished account: nothing real is saved yet.
+      state.missingHealthFields = ['age', 'height', 'weight'];
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const OnboardingFlow()),
+        (route) => false,
+      );
+    } else {
+      await state.loadSavedFromServer();
+      await state.loadMealPlanFromServer();
+      if (state.mealPlan.isEmpty) await state.generateMealPlan();
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const HomeShell()),
+        (route) => false,
+      );
+    }
+  }
+
+  String _socialErrorMessage(FirebaseAuthException e, String provider) {
+    if (e.code == 'account-exists-with-different-credential') {
+      return 'This email already has an account. Please sign in with your '
+          'email and password, or the method you used before.';
+    }
+    if (e.code == 'network-request-failed') {
+      return 'Could not reach the internet — check your connection.';
+    }
+    return '$provider sign-in failed: ${e.message ?? e.code}';
+  }
+
   Future<void> _signInWithGoogle() async {
     setState(() => _loading = true);
     try {
@@ -181,54 +249,66 @@ class _AuthScreenState extends State<AuthScreen> {
       await FirebaseAuth.instance.signInWithCredential(credential);
       if (!mounted) return;
 
-      final state = AppState.instance;
-
-      // Always reflect the real Google account details.
-      state.profile.name = googleUser.displayName ?? state.profile.name;
-      state.profile.email = googleUser.email;
-      state.refresh();
-
-      // Persist name/email (and create the profile doc for new users).
-      await FirebaseService.syncGoogleUserDoc(
-        name: state.profile.name,
-        email: state.profile.email,
+      await _finishSocialSignIn(
+        displayName: googleUser.displayName,
+        email: googleUser.email,
       );
-
-      // Load THIS account's saved health data and preferences first, so the
-      // calorie target never falls back to placeholder defaults.
-      await state.loadProfileFromServer();
-
-      // Decide by the saved onboarding flag, not "is new user" (TC-028/034).
-      final done = await FirebaseService.isOnboardingComplete();
-      if (!mounted) return;
-
-      if (!done) {
-        // Unfinished account: nothing real is saved yet, so don't trust defaults.
-        state.missingHealthFields = ['age', 'height', 'weight'];
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const OnboardingFlow()),
-          (route) => false,
-        );
-      } else {
-        await state.loadSavedFromServer();
-        await state.loadMealPlanFromServer();
-        if (state.mealPlan.isEmpty) await state.generateMealPlan();
-        if (!mounted) return;
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const HomeShell()),
-          (route) => false,
-        );
-      }
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
-      final msg = e.code == 'account-exists-with-different-credential'
-          ? 'This email already has an account. Please sign in with your email and password.'
-          : 'Google sign-in failed: ${e.message ?? e.code}';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(_socialErrorMessage(e, 'Google'))));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Google sign-in failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// FR-002: Facebook login/registration. Same flow as Google: cancelling
+  /// leaves the user on this screen, and the saved onboarding flag decides
+  /// whether they go to onboarding or Home.
+  Future<void> _signInWithFacebook() async {
+    setState(() => _loading = true);
+    try {
+      // Clear any remembered Facebook session so the user is asked again.
+      await FacebookAuth.instance.logOut();
+
+      final result = await FacebookAuth.instance
+          .login(permissions: ['public_profile', 'email']);
+
+      if (result.status == LoginStatus.cancelled) return; // stay on screen
+      if (result.status != LoginStatus.success || result.accessToken == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(
+                  'Facebook sign-in failed: ${result.message ?? 'please try again'}')),
+        );
+        return;
+      }
+
+      final credential =
+          FacebookAuthProvider.credential(result.accessToken!.tokenString);
+      final cred = await FirebaseAuth.instance.signInWithCredential(credential);
+      if (!mounted) return;
+
+      // Facebook may not share an email (some accounts are phone-only), so
+      // the email can legitimately be empty.
+      await _finishSocialSignIn(
+        displayName: cred.user?.displayName,
+        email: cred.user?.email,
+      );
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(_socialErrorMessage(e, 'Facebook'))));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Facebook sign-in failed: $e')),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -406,6 +486,14 @@ class _AuthScreenState extends State<AuthScreen> {
                   onPressed: _loading ? null : _signInWithGoogle,
                   icon: const Icon(Icons.g_mobiledata, size: 26),
                   label: const Text('Continue with Google'),
+                ),
+                const SizedBox(height: 12),
+
+                // (8) Continue with Facebook button
+                OutlinedButton.icon(
+                  onPressed: _loading ? null : _signInWithFacebook,
+                  icon: const Icon(Icons.facebook, size: 22, color: Color(0xFF1877F2)),
+                  label: const Text('Continue with Facebook'),
                 ),
                 const SizedBox(height: 24),
               ],
