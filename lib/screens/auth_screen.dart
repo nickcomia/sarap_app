@@ -88,9 +88,11 @@ class _AuthScreenState extends State<AuthScreen> {
           password: _passwordController.text,
         );
         if (!mounted) return;
-        // New users proceed through the 4-step onboarding flow.
-        Navigator.of(context).push(
+        // New users proceed through the 4-step onboarding flow. The auth
+        // screen is removed so Back can't return to it (TC-033).
+        Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const OnboardingFlow()),
+          (route) => false,
         );
       } else {
         await state.login(
@@ -98,8 +100,21 @@ class _AuthScreenState extends State<AuthScreen> {
           password: _passwordController.text,
         );
         if (!mounted) return;
+
+        // Accounts that haven't finished onboarding go back to it (TC-033/034).
+        final done = await FirebaseService.isOnboardingComplete();
+        if (!mounted) return;
+        if (!done) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const OnboardingFlow()),
+            (route) => false,
+          );
+          return;
+        }
+
         // Returning users skip straight to the Home / Discovery feed.
         if (state.mealPlan.isEmpty) await state.generateMealPlan();
+        if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const HomeShell()),
           (route) => false,
@@ -149,8 +164,13 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> _signInWithGoogle() async {
     setState(() => _loading = true);
     try {
-      final googleUser = await GoogleSignIn().signIn();
-      if (googleUser == null) return; // user cancelled
+      final google = GoogleSignIn();
+      // Forget the remembered account so Google always shows the account
+      // picker (TC-028, TC-029, TC-031).
+      await google.signOut();
+
+      final googleUser = await google.signIn();
+      if (googleUser == null) return; // cancelled: stay on this screen (TC-029)
 
       final googleAuth = await googleUser.authentication;
       final credential = GoogleAuthProvider.credential(
@@ -158,43 +178,47 @@ class _AuthScreenState extends State<AuthScreen> {
         idToken: googleAuth.idToken,
       );
 
-      final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
+      await FirebaseAuth.instance.signInWithCredential(credential);
       if (!mounted) return;
 
       final state = AppState.instance;
-      final isNewUser = userCred.additionalUserInfo?.isNewUser ?? false;
 
-      // Always reflect the real Google account details, not the
-      // UserProfile() placeholder defaults.
+      // Always reflect the real Google account details.
       state.profile.name = googleUser.displayName ?? state.profile.name;
       state.profile.email = googleUser.email;
       state.refresh();
 
-      // Persist to Firestore so a cold restart (process killed + relaunched)
-      // can rehydrate the real name/email instead of falling back to
-      // UserProfile()'s placeholder defaults — email/password accounts get
-      // this for free via register(), but Google's flow needs it explicitly.
+      // Persist name/email (and create the profile doc for new users).
       await FirebaseService.syncGoogleUserDoc(
         name: state.profile.name,
         email: state.profile.email,
       );
 
-      if (isNewUser) {
-        // Brand-new account — no BMI/calorie/preference data yet,
-        // so send them through onboarding just like email/password sign-up.
-        Navigator.of(context).push(
+      // Decide by the saved onboarding flag, not "is new user" (TC-028/034).
+      final done = await FirebaseService.isOnboardingComplete();
+      if (!mounted) return;
+
+      if (!done) {
+        Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const OnboardingFlow()),
+          (route) => false,
         );
       } else {
-        // Returning Google user — pull down whatever they already saved.
         await state.loadSavedFromServer();
         await state.loadMealPlanFromServer();
         if (state.mealPlan.isEmpty) await state.generateMealPlan();
+        if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const HomeShell()),
           (route) => false,
         );
       }
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      final msg = e.code == 'account-exists-with-different-credential'
+          ? 'This email already has an account. Please sign in with your email and password.'
+          : 'Google sign-in failed: ${e.message ?? e.code}';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

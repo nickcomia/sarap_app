@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import '../../services/admin_service.dart';
 import '../../theme.dart';
 import 'admin_add_restaurant_screen.dart';
+import 'admin_content_screen.dart';
+import 'admin_dashboard_screen.dart';
 import 'admin_restaurants_screen.dart';
+import 'admin_users_screen.dart';
 
-/// Landing page of the admin dashboard. Live tiles open screens that
-/// already exist; the rest map to the remaining items of the
-/// Administrator Module (1.1.1 to 1.1.4) and are filled in as they are built.
+/// Landing page of the admin dashboard.
 class AdminHomeScreen extends StatelessWidget {
   const AdminHomeScreen({super.key});
 
@@ -39,7 +40,7 @@ class AdminHomeScreen extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.all(24),
             children: [
-              Text('Restaurants & menus (1.1.1)',
+              Text('Restaurants & menus',
                   style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 12),
               _tile(
@@ -61,20 +62,36 @@ class AdminHomeScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 22),
-              Text('Coming next', style: Theme.of(context).textTheme.titleMedium),
+              Text('Insights & moderation',
+                  style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 12),
-              _tile(context,
-                  icon: Icons.category_outlined,
-                  title: 'Food categories, nutrition, promotions',
-                  subtitle: '1.1.1'),
-              _tile(context,
-                  icon: Icons.rate_review_outlined,
-                  title: 'Users, reviews, feedback, moderation',
-                  subtitle: '1.1.3'),
-              _tile(context,
-                  icon: Icons.insights_outlined,
-                  title: 'Engagement, dashboards, reports',
-                  subtitle: '1.1.2 and 1.1.4'),
+              _tile(
+                context,
+                icon: Icons.insights_outlined,
+                title: 'Engagement, dashboards, reports',
+                subtitle: 'Users, restaurants, most saved, charts, and a copyable report',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+                ),
+              ),
+              _tile(
+                context,
+                icon: Icons.rate_review_outlined,
+                title: 'Users, reviews, feedback, moderation',
+                subtitle: 'Browse user accounts and handle reports',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AdminUsersScreen()),
+                ),
+              ),
+              _tile(
+                context,
+                icon: Icons.category_outlined,
+                title: 'Food categories, nutrition, promotions',
+                subtitle: 'Manage categories, nutrition values, and promotional offers',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AdminContentScreen()),
+                ),
+              ),
             ],
           ),
         ),

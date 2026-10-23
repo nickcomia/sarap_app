@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../theme.dart';
 import '../../app_state.dart';
 import '../../widgets/common.dart';
+import '../../services/firebase_service.dart';
 import '../home_shell.dart';
 import 'step1_food_preferences.dart';
 import 'step2_taste_budget.dart';
@@ -50,7 +51,12 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
 
   void _back() {
     if (_step == 0) {
-      Navigator.of(context).pop();
+      // Opened from Profile (something to go back to): leave the flow.
+      // First-time onboarding has nothing underneath, so Back does nothing
+      // and the user can't skip to the Home feed (TC-033).
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
       return;
     }
     setState(() => _step -= 1);
@@ -63,6 +69,9 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
   void _finish() async {
     final state = AppState.instance;
     await state.syncProfileToServer();
+    // Remember that onboarding is done so relaunching or signing in again
+    // goes to Home instead of back here (TC-033, TC-034).
+    await FirebaseService.markOnboardingComplete();
     state.generateMealPlan();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
@@ -79,53 +88,61 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
-              child: Row(
-                children: [
-                  IconButton(
-                    onPressed: _back,
-                    icon: const Icon(Icons.arrow_back, color: AppColors.navy),
-                  ),
-                ],
+    return PopScope(
+      // The device Back button steps back through onboarding instead of
+      // leaving it.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _back();
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: _back,
+                      icon: const Icon(Icons.arrow_back, color: AppColors.navy),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: StepProgress(
-                step: _step + 1,
-                totalSteps: 4,
-                title: _titles[_step],
-                subtitle: _subtitles[_step],
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: StepProgress(
+                  step: _step + 1,
+                  totalSteps: 4,
+                  title: _titles[_step],
+                  subtitle: _subtitles[_step],
+                ),
               ),
-            ),
-            Expanded(
-              child: PageView(
-                controller: _pageController,
-                physics: const NeverScrollableScrollPhysics(),
-                children: const [
-                  Step1FoodPreferences(),
-                  Step2TasteBudget(),
-                  Step3HealthProfile(),
-                  Step4Summary(),
-                ],
+              Expanded(
+                child: PageView(
+                  controller: _pageController,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: const [
+                    Step1FoodPreferences(),
+                    Step2TasteBudget(),
+                    Step3HealthProfile(),
+                    Step4Summary(),
+                  ],
+                ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
-              child: ElevatedButton(
-                onPressed: _next,
-                child: Text(_step < 3 ? 'Continue' : 'Find food near me'),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+                child: ElevatedButton(
+                  onPressed: _next,
+                  child: Text(_step < 3 ? 'Continue' : 'Find food near me'),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
-

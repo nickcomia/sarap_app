@@ -95,6 +95,9 @@ class FirebaseService {
   /// rehydration (fetchUserDoc) finds nothing and falls back to defaults.
   /// Safe to call on every Google sign-in (new or returning) — merge:true
   /// means it won't clobber anything else already there.
+  ///
+  /// Also creates the profiles/{uid} doc for first-time Google users, with
+  /// onboardingCompleted = false, so onboarding is enforced for them.
   static Future<void> syncGoogleUserDoc({
     required String name,
     required String email,
@@ -106,6 +109,11 @@ class FirebaseService {
       'email': email,
       'createdAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+
+    final profileRef = _db.collection('profiles').doc(uid);
+    if (!(await profileRef.get()).exists) {
+      await profileRef.set(_defaultProfileMap());
+    }
   }
 
   /// Whether the currently signed-in user's email is verified. Returns
@@ -234,6 +242,28 @@ class FirebaseService {
     return doc.data();
   }
 
+  /// Whether the signed-in user has finished the onboarding flow.
+  /// Reads straight from the server (not the cache) so the answer is
+  /// always current. Accounts created before this flag existed have no
+  /// 'onboardingCompleted' field and count as completed.
+  static Future<bool> isOnboardingComplete() async {
+    final uid = currentUid;
+    if (uid == null) return false;
+    final doc = await _db.collection('profiles').doc(uid).get();
+    if (!doc.exists) return false; // brand-new account
+    return doc.data()?['onboardingCompleted'] != false;
+  }
+
+  /// Call when the user finishes the last onboarding step.
+  static Future<void> markOnboardingComplete() async {
+    final uid = currentUid;
+    if (uid == null) return;
+    await _db
+        .collection('profiles')
+        .doc(uid)
+        .set({'onboardingCompleted': true}, SetOptions(merge: true));
+  }
+
   static Map<String, dynamic> _defaultProfileMap() => {
         'establishmentTypes': [],
         'cuisines': [],
@@ -248,6 +278,7 @@ class FirebaseService {
         'sex': 'notSaid',
         'activityLevel': 'moderate',
         'healthGoal': 'maintain',
+        'onboardingCompleted': false,
       };
 
   // ------------------------------------------------------------------
@@ -255,19 +286,19 @@ class FirebaseService {
   // ------------------------------------------------------------------
 
   static Future<List<Restaurant>> fetchRestaurants({
-    bool forceServer = false,
+    bool forceServer = false, // kept so existing callers still compile
     bool includeUnavailable = false,
   }) async {
-    final query = _db.collection('restaurants');
-    final snap = forceServer ? await query.get() : await getCacheFirst(query);
+    final snap = await _db.collection('restaurants').get();
 
     if (snap.docs.isEmpty) {
-      // First run — nobody has seeded the "restaurants" collection yet.
-      // Push the bundled sample data up so the app has something to show,
-      // then read it back the same way as any other run.
+      // First run: seed the bundled sample data, then read it back.
       await _seedRestaurants();
       final reseeded = await _db.collection('restaurants').get();
-      return reseeded.docs.map(_restaurantFromDoc).toList();
+      return reseeded.docs
+          .where((d) => includeUnavailable || d.data()['available'] != false)
+          .map(_restaurantFromDoc)
+          .toList();
     }
 
     return snap.docs
@@ -435,10 +466,10 @@ class FirebaseService {
   /// per restaurant (what fetchMenuItems() does one at a time). Each
   /// MenuItem already carries its own restaurantId, so callers can group
   /// them locally if needed.
-  static Future<List<MenuItem>> fetchAllMenuItems() async {
+  static Future<List<MenuItem>> fetchAllMenuItems({bool includeUnavailable = false}) async {
     final snap = await _db.collectionGroup('menuItems').get();
     return snap.docs
-        .where((d) => d.data()['available'] != false)
+        .where((d) => includeUnavailable || d.data()['available'] != false)
         .map((d) {
       final m = d.data();
       final restaurantId = d.reference.parent.parent!.id;
@@ -562,6 +593,153 @@ class FirebaseService {
         .collection('menuItems')
         .doc(itemId)
         .delete();
+  }
+
+  // ---- Admin: dashboard, users, reports, content ----
+
+  /// Numbers for the admin dashboard.
+  static Future<Map<String, dynamic>> fetchDashboardStats() async {
+    final users = await _db.collection('users').count().get();
+
+    var newUsers = 0;
+    try {
+      final weekAgo =
+          Timestamp.fromDate(DateTime.now().subtract(const Duration(days: 7)));
+      final nu = await _db
+          .collection('users')
+          .where('createdAt', isGreaterThanOrEqualTo: weekAgo)
+          .count()
+          .get();
+      newUsers = nu.count ?? 0;
+    } catch (_) {}
+
+    final restSnap = await _db.collection('restaurants').get();
+    final items = await _db.collectionGroup('menuItems').count().get();
+
+    final names = <String, String>{};
+    final typeCounts = <String, int>{};
+    var ratingSum = 0.0;
+    var ratingN = 0;
+    var hidden = 0;
+    for (final d in restSnap.docs) {
+      final m = d.data();
+      names[d.id] = (m['name'] ?? '').toString();
+      final type = (m['type'] ?? 'Other').toString();
+      typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+      final rating = (m['rating'] as num?)?.toDouble();
+      if (rating != null && rating > 0) {
+        ratingSum += rating;
+        ratingN++;
+      }
+      if (m['available'] == false) hidden++;
+    }
+
+    // How many users saved each restaurant (needs the admin to be allowed
+    // to read every user's "saved" list; if rules block it we report that).
+    final saved = <String, int>{};
+    var savedOk = true;
+    try {
+      final s = await _db.collectionGroup('saved').get();
+      for (final d in s.docs) {
+        saved[d.id] = (saved[d.id] ?? 0) + 1;
+      }
+    } catch (_) {
+      savedOk = false;
+    }
+
+    final mostSaved = saved.entries
+        .map((e) => {'name': names[e.key] ?? e.key, 'count': e.value})
+        .toList()
+      ..sort((a, b) => (b['count'] as int).compareTo(a['count'] as int));
+    final byType = typeCounts.entries
+        .map((e) => {'name': e.key, 'count': e.value})
+        .toList()
+      ..sort((a, b) => (b['count'] as int).compareTo(a['count'] as int));
+
+    return {
+      'users': users.count ?? 0,
+      'newUsers': newUsers,
+      'restaurants': restSnap.docs.length,
+      'hiddenRestaurants': hidden,
+      'menuItems': items.count ?? 0,
+      'avgRating': ratingN == 0 ? 0.0 : ratingSum / ratingN,
+      'byType': byType,
+      'mostSaved': mostSaved.take(5).toList(),
+      'totalSaves': saved.values.fold<int>(0, (a, b) => a + b),
+      'savedOk': savedOk,
+    };
+  }
+
+  /// Every document of [collection] as a map (with its id). Timestamps are
+  /// converted to DateTime; newest createdAt first.
+  static Future<List<Map<String, dynamic>>> adminListDocs(String collection) async {
+    final snap = await _db.collection(collection).get();
+    final list = snap.docs.map((d) {
+      final m = <String, dynamic>{'id': d.id};
+      d.data().forEach((k, v) {
+        m[k] = v is Timestamp ? v.toDate() : v;
+      });
+      return m;
+    }).toList();
+    list.sort((a, b) {
+      final x = a['createdAt'];
+      final y = b['createdAt'];
+      if (x is DateTime && y is DateTime) return y.compareTo(x);
+      if (x is DateTime) return -1;
+      if (y is DateTime) return 1;
+      return 0;
+    });
+    return list;
+  }
+
+  /// Creates (id == null) or merges into (id given) a document.
+  static Future<void> adminSaveDoc(
+      String collection, String? id, Map<String, dynamic> data) async {
+    if (id == null) {
+      await _db
+          .collection(collection)
+          .add({...data, 'createdAt': FieldValue.serverTimestamp()});
+    } else {
+      await _db.collection(collection).doc(id).set(data, SetOptions(merge: true));
+    }
+  }
+
+  static Future<void> adminDeleteDoc(String collection, String id) async {
+    await _db.collection(collection).doc(id).delete();
+  }
+
+  /// '<restaurantId>/<itemId>' -> { proteinG, carbsG, fatG } for every menu item.
+  static Future<Map<String, Map<String, dynamic>>> fetchNutritionExtras() async {
+    final snap = await _db.collectionGroup('menuItems').get();
+    return {
+      for (final d in snap.docs)
+        '${d.reference.parent.parent!.id}/${d.id}': {
+          'proteinG': d.data()['proteinG'],
+          'carbsG': d.data()['carbsG'],
+          'fatG': d.data()['fatG'],
+        }
+    };
+  }
+
+  static Future<void> updateMenuItemNutrition({
+    required String restaurantId,
+    required String itemId,
+    required int calories,
+    double? proteinG,
+    double? carbsG,
+    double? fatG,
+  }) async {
+    await _db
+        .collection('restaurants')
+        .doc(restaurantId)
+        .collection('menuItems')
+        .doc(itemId)
+        .update({
+      'calories': calories,
+      'proteinG': proteinG,
+      'carbsG': carbsG,
+      'fatG': fatG,
+    });
   }
 
   /// Numeric Firestore fields sometimes get entered as strings (e.g. via
