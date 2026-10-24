@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'firebase_options.dart';
 import 'screens/admin/admin_gate.dart';
-import 'theme.dart';
+import 'admin_theme.dart';
 
 /// Entry point for the web admin dashboard. Run it with:
 ///   flutter run -d chrome -t lib/main_admin.dart
@@ -31,7 +31,7 @@ class SarapAdminApp extends StatelessWidget {
     return MaterialApp(
       title: 'SARAP Admin',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
+      theme: AdminTheme.light(),
       home: const AdminGate(),
     );
   }
