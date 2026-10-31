@@ -7,7 +7,7 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 android {
-    namespace = "com.example.sarap_app"
+    namespace = "com.ph.sarap_app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
     compileOptions {
@@ -16,7 +16,7 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
     defaultConfig {
-        applicationId = "com.example.sarap_app"
+        applicationId = "com.ph.sarap_app"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

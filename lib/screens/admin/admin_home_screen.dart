@@ -120,7 +120,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             children: [
               Builder(
                 builder: (ctx) => Container(
-                  height: 52,
+                  height: 48,
                   padding: const EdgeInsets.symmetric(horizontal: 6),
                   color: AppColors.navy,
                   child: Row(
@@ -383,12 +383,14 @@ class _OverviewPageState extends State<_OverviewPage> {
   @override
   Widget build(BuildContext context) {
     final s = _stats;
+    final phone = MediaQuery.of(context).size.width < 600;
+    final pad = phone ? 16.0 : 28.0;
     return Align(
       alignment: Alignment.topCenter,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1100),
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(28, 28, 28, 40),
+          padding: EdgeInsets.fromLTRB(pad, pad, pad, 40),
           children: [
             // Header
             Row(
@@ -399,7 +401,9 @@ class _OverviewPageState extends State<_OverviewPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Welcome back',
-                          style: Theme.of(context).textTheme.headlineMedium),
+                          style: phone
+                              ? Theme.of(context).textTheme.headlineSmall
+                              : Theme.of(context).textTheme.headlineMedium),
                       const SizedBox(height: 4),
                       Text(_today(),
                           style: const TextStyle(

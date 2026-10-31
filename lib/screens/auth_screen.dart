@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../services/firebase_service.dart';
@@ -10,8 +9,8 @@ import 'home_shell.dart';
 
 /// Figure 8: Sign In / Register Screen.
 /// Tabs switch between the login view and account-creation view; includes
-/// email/password fields, a show/hide password toggle, "Continue with
-/// Google" and "Continue with Facebook".
+/// email/password fields, a show/hide password toggle, and "Continue with
+/// Google".
 class AuthScreen extends StatefulWidget {
   final bool startOnRegister;
   const AuthScreen({super.key, this.startOnRegister = false});
@@ -164,7 +163,7 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  /// Shared by Google and Facebook once Firebase has accepted the credential:
+  /// Used by Google sign-in once Firebase has accepted the credential:
   /// saves name/email, loads THIS account's saved profile (so the calorie
   /// target never uses placeholder defaults), then routes to onboarding or
   /// Home depending on the saved onboarding flag.
@@ -261,54 +260,6 @@ class _AuthScreenState extends State<AuthScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Google sign-in failed: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  /// FR-002: Facebook login/registration. Same flow as Google: cancelling
-  /// leaves the user on this screen, and the saved onboarding flag decides
-  /// whether they go to onboarding or Home.
-  Future<void> _signInWithFacebook() async {
-    setState(() => _loading = true);
-    try {
-      // Clear any remembered Facebook session so the user is asked again.
-      await FacebookAuth.instance.logOut();
-
-      final result = await FacebookAuth.instance
-          .login(permissions: ['public_profile', 'email']);
-
-      if (result.status == LoginStatus.cancelled) return; // stay on screen
-      if (result.status != LoginStatus.success || result.accessToken == null) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(
-                  'Facebook sign-in failed: ${result.message ?? 'please try again'}')),
-        );
-        return;
-      }
-
-      final credential =
-          FacebookAuthProvider.credential(result.accessToken!.tokenString);
-      final cred = await FirebaseAuth.instance.signInWithCredential(credential);
-      if (!mounted) return;
-
-      // Facebook may not share an email (some accounts are phone-only), so
-      // the email can legitimately be empty.
-      await _finishSocialSignIn(
-        displayName: cred.user?.displayName,
-        email: cred.user?.email,
-      );
-    } on FirebaseAuthException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_socialErrorMessage(e, 'Facebook'))));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Facebook sign-in failed: $e')),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -486,14 +437,6 @@ class _AuthScreenState extends State<AuthScreen> {
                   onPressed: _loading ? null : _signInWithGoogle,
                   icon: const Icon(Icons.g_mobiledata, size: 26),
                   label: const Text('Continue with Google'),
-                ),
-                const SizedBox(height: 12),
-
-                // (8) Continue with Facebook button
-                OutlinedButton.icon(
-                  onPressed: _loading ? null : _signInWithFacebook,
-                  icon: const Icon(Icons.facebook, size: 22, color: Color(0xFF1877F2)),
-                  label: const Text('Continue with Facebook'),
                 ),
                 const SizedBox(height: 24),
               ],

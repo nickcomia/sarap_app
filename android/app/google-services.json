@@ -29,6 +29,56 @@
       "api_key": [
         {
           "current_key": "AIzaSyBaJauS2Pp2WMb17vsCdkeuX7hHA2J_pOQ"
+        },
+        {
+          "current_key": "AIzaSyAtctUqCPb3zh_d0W84eTN0SaeMCvQS5yw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "34145947868-1bfc6unbtfdrldrdga2ac4hmiu6801uv.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "34145947868-np7jlsh29phoqlct7asdkjdd9f81mkon.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.sarapApp"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:34145947868:android:14c29b6fd52e921fe3e419",
+        "android_client_info": {
+          "package_name": "com.ph.sarap_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "34145947868-uljp5tberrdoce0jl2d8995cqmot7tqc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ph.sarap_app",
+            "certificate_hash": "dcc4a9742b2e90e0ab1fa2198492cd7408bdbde8"
+          }
+        },
+        {
+          "client_id": "34145947868-1bfc6unbtfdrldrdga2ac4hmiu6801uv.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBaJauS2Pp2WMb17vsCdkeuX7hHA2J_pOQ"
+        },
+        {
+          "current_key": "AIzaSyAtctUqCPb3zh_d0W84eTN0SaeMCvQS5yw"
         }
       ],
       "services": {

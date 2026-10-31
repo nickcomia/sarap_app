@@ -9,7 +9,8 @@ import '../../services/firebase_service.dart';
 import '../../services/pdf_actions.dart';
 
 /// Engagement dashboard: headline numbers, simple bar charts, and a
-/// copyable text report.
+/// copyable text report. Adapts to phones: two stat cards per row, tighter
+/// padding, and the report actions collapse into a single menu.
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
 
@@ -305,6 +306,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  Future<void> _copyReport(Map<String, dynamic> s) async {
+    await Clipboard.setData(ClipboardData(text: _reportText(s)));
+    _snack('Report copied to clipboard');
+  }
+
   /// Opens the PDF so it can be printed / saved.
   Future<void> _printReport(Map<String, dynamic> s) async {
     try {
@@ -328,6 +334,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final s = _stats;
+    final phone = MediaQuery.of(context).size.width < 600;
+    final pad = phone ? 16.0 : 24.0;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Dashboard & reports'),
@@ -337,30 +346,38 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             onPressed: _load,
             icon: const Icon(Icons.refresh),
           ),
-          if (s != null)
+          if (s != null && !phone) ...[
             IconButton(
               tooltip: 'Copy report',
-              onPressed: () async {
-                await Clipboard.setData(ClipboardData(text: _reportText(s)));
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Report copied to clipboard')),
-                  );
-                }
-              },
+              onPressed: () => _copyReport(s),
               icon: const Icon(Icons.copy_all_outlined),
             ),
-          if (s != null)
             IconButton(
               tooltip: 'Print / Save as PDF',
               onPressed: () => _printReport(s),
               icon: const Icon(Icons.print_outlined),
             ),
-          if (s != null)
             IconButton(
               tooltip: 'Download PDF',
               onPressed: () => _downloadPdf(s),
               icon: const Icon(Icons.picture_as_pdf_outlined),
+            ),
+          ],
+          // On phones the three report actions share one menu.
+          if (s != null && phone)
+            PopupMenuButton<String>(
+              tooltip: 'Report options',
+              icon: const Icon(Icons.more_vert),
+              onSelected: (v) {
+                if (v == 'copy') _copyReport(s);
+                if (v == 'print') _printReport(s);
+                if (v == 'pdf') _downloadPdf(s);
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'copy', child: Text('Copy report')),
+                PopupMenuItem(value: 'print', child: Text('Print / Save as PDF')),
+                PopupMenuItem(value: 'pdf', child: Text('Download PDF')),
+              ],
             ),
         ],
       ),
@@ -379,42 +396,39 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 900),
                     child: ListView(
-                      padding: const EdgeInsets.all(24),
+                      padding: EdgeInsets.all(pad),
                       children: [
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: [
-                            _StatCard(
-                                icon: Icons.people_outline,
-                                label: 'Registered users',
-                                value: '${s['users']}'),
-                            _StatCard(
-                                icon: Icons.person_add_alt_1_outlined,
-                                label: 'New users (7 days)',
-                                value: '${s['newUsers']}'),
-                            _StatCard(
-                                icon: Icons.storefront_outlined,
-                                label: 'Restaurants',
-                                value: '${s['restaurants']}'),
-                            _StatCard(
-                                icon: Icons.restaurant_menu,
-                                label: 'Menu items',
-                                value: '${s['menuItems']}'),
-                            _StatCard(
-                                icon: Icons.star_outline,
-                                label: 'Average rating',
-                                value: (s['avgRating'] as double).toStringAsFixed(1)),
-                            _StatCard(
-                                icon: Icons.favorite_border,
-                                label: 'Saved places',
-                                value: '${s['totalSaves']}'),
-                            _StatCard(
-                                icon: Icons.visibility_off_outlined,
-                                label: 'Hidden restaurants',
-                                value: '${s['hiddenRestaurants']}'),
-                          ],
-                        ),
+                        LayoutBuilder(builder: (context, c) {
+                          // 2 cards per row on phones, 3 on wider screens.
+                          final cols = c.maxWidth >= 640 ? 3 : 2;
+                          const gap = 12.0;
+                          final w = (c.maxWidth - gap * (cols - 1)) / cols;
+                          Widget card(IconData i, String label, String value) =>
+                              SizedBox(
+                                width: w,
+                                child: _StatCard(icon: i, label: label, value: value),
+                              );
+                          return Wrap(
+                            spacing: gap,
+                            runSpacing: gap,
+                            children: [
+                              card(Icons.people_outline, 'Registered users',
+                                  '${s['users']}'),
+                              card(Icons.person_add_alt_1_outlined,
+                                  'New users (7 days)', '${s['newUsers']}'),
+                              card(Icons.storefront_outlined, 'Restaurants',
+                                  '${s['restaurants']}'),
+                              card(Icons.restaurant_menu, 'Menu items',
+                                  '${s['menuItems']}'),
+                              card(Icons.star_outline, 'Average rating',
+                                  (s['avgRating'] as double).toStringAsFixed(1)),
+                              card(Icons.favorite_border, 'Saved places',
+                                  '${s['totalSaves']}'),
+                              card(Icons.visibility_off_outlined,
+                                  'Hidden restaurants', '${s['hiddenRestaurants']}'),
+                            ],
+                          );
+                        }),
                         const SizedBox(height: 20),
                         _BarSection(
                           title: 'Most saved restaurants',
@@ -438,6 +452,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 }
 
+/// Stat card. Lays out icon and text side by side when there is room, and
+/// stacks them vertically on narrow (phone) cards so nothing overflows.
 class _StatCard extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -446,40 +462,50 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final iconBox = Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: AppColors.chipSelectedBg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Icon(icon, color: AppColors.primaryDark),
+    );
+    final texts = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(value,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
+        const SizedBox(height: 2),
+        Text(label,
+            style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
+      ],
+    );
+
     return Container(
-      width: 210,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.card,
         borderRadius: BorderRadius.circular(16),
         boxShadow: AppShadows.soft,
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: AppColors.chipSelectedBg,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: AppColors.primaryDark),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(value,
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
-                const SizedBox(height: 2),
-                Text(label,
-                    style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
-              ],
-            ),
-          ),
-        ],
-      ),
+      child: LayoutBuilder(builder: (context, c) {
+        final stacked = c.maxWidth < 190;
+        if (stacked) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [iconBox, const SizedBox(height: 10), texts],
+          );
+        }
+        return Row(
+          children: [
+            iconBox,
+            const SizedBox(width: 12),
+            Expanded(child: texts),
+          ],
+        );
+      }),
     );
   }
 }
@@ -492,9 +518,10 @@ class _BarSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final phone = MediaQuery.of(context).size.width < 600;
     final maxValue = rows.isEmpty ? 1 : rows.map((e) => e.value).reduce((a, b) => a > b ? a : b);
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: EdgeInsets.all(phone ? 14 : 18),
       decoration: BoxDecoration(
         color: AppColors.card,
         borderRadius: BorderRadius.circular(16),
@@ -514,7 +541,7 @@ class _BarSection extends StatelessWidget {
                 child: Row(
                   children: [
                     SizedBox(
-                      width: 160,
+                      width: phone ? 96 : 160,
                       child: Text(r.key,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 13)),
