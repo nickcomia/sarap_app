@@ -213,7 +213,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                       Text('${r.distanceKm} km away',
                           style: TextStyle(color: colors.muted, fontSize: 13)),
                       const SizedBox(width: 14),
-                      Text(r.priceRange,
+                      Text(r.priceLabel,
                           style: TextStyle(fontWeight: FontWeight.w800, color: colors.navy)),
                     ],
                   ),

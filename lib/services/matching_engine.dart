@@ -42,28 +42,46 @@ class MatchingEngine {
     // --- Cuisine preference (25 pts) ---
     if (profile.cuisines.isEmpty) {
       score += 15; // neutral credit — no stated preference to violate
-    } else if (profile.cuisines.contains(restaurant.cuisine)) {
+    } else if (profile.cuisines.map(_key).contains(_key(restaurant.cuisine))) {
       score += 25;
     }
 
     // --- Establishment type (15 pts) ---
     if (profile.establishmentTypes.isEmpty) {
       score += 9;
-    } else if (profile.establishmentTypes.contains(restaurant.type)) {
+    } else if (profile.establishmentTypes
+        .map(_key)
+        .toSet()
+        .intersection(_typeKeys(restaurant.type))
+        .isNotEmpty) {
       score += 15;
     }
 
     // --- Budget fit (20 pts) ---
-    final userBudgetRank = _budgetRankFor(profile.maxBudget);
-    final placeRank = _priceRankMap[restaurant.priceRange] ?? 2;
-    if (placeRank <= userBudgetRank) {
-      // Comfortably within budget — full marks, with a small bonus for
-      // being noticeably cheaper than the user's ceiling.
-      score += 20;
+    // With a real price range (set by the administrator) the score follows
+    // the numbers; older records fall back to the three ₱ levels.
+    final typical = restaurant.typicalPrice;
+    final lowest = restaurant.priceMin;
+    if (typical != null && lowest != null) {
+      final budget = profile.maxBudget >= 500 ? double.infinity : profile.maxBudget;
+      if (budget >= typical) {
+        score += 20; // the usual dish is affordable
+      } else if (budget >= lowest) {
+        // Some dishes fit: 10 points rising to 20 as the budget nears the typical price.
+        score += 10 + 10 * ((budget - lowest) / (typical - lowest));
+      } else {
+        // Even the cheapest dish is above the budget.
+        score += 10 * (budget / lowest);
+      }
     } else {
-      // Over budget — partial credit that shrinks the further over it is.
-      final overBy = placeRank - userBudgetRank;
-      score += (20 - overBy * 8).clamp(0, 20).toDouble();
+      final userBudgetRank = _budgetRankFor(profile.maxBudget);
+      final placeRank = _priceRankMap[restaurant.priceRange] ?? 2;
+      if (placeRank <= userBudgetRank) {
+        score += 20;
+      } else {
+        final overBy = placeRank - userBudgetRank;
+        score += (20 - overBy * 8).clamp(0, 20).toDouble();
+      }
     }
 
     // --- Dietary restriction compliance (20 pts) ---
@@ -87,6 +105,23 @@ class MatchingEngine {
 
     return score.round().clamp(0, 100);
   }
+
+  /// Comparison key that ignores case, accents, spaces and punctuation, so
+  /// "Karinderyá", "Karinderya", "Fast food" and "Fastfood" all match.
+  static String _key(String text) {
+    const from = 'áàâäãéèêëíìîïóòôöõúùûüñ';
+    const to = 'aaaaaeeeeiiiiooooouuuun';
+    final buffer = StringBuffer();
+    for (final ch in text.toLowerCase().split('')) {
+      final i = from.indexOf(ch);
+      buffer.write(i >= 0 ? to[i] : ch);
+    }
+    return buffer.toString().replaceAll(RegExp(r'[^a-z0-9]'), '');
+  }
+
+  /// A restaurant may carry several types, e.g. "Restaurant, Bar".
+  static Set<String> _typeKeys(String type) =>
+      type.split(',').map(_key).where((k) => k.isNotEmpty).toSet();
 
   /// Maps the user's max-budget slider (₱30-₱500+) onto the same 1-3
   /// scale used for restaurant price ranges (₱ / ₱₱ / ₱₱₱).

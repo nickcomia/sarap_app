@@ -9,6 +9,7 @@ import '../widgets/change_email_sheet.dart';
 import '../services/report_service.dart';
 import 'onboarding/onboarding_flow.dart';
 import 'splash_screen.dart';
+import 'about_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -198,6 +199,14 @@ class ProfileScreen extends StatelessWidget {
                   onChanged: (_) => state.toggleTheme(),
                 ),
               ],
+            ),
+          ),
+          // About SARAP
+          ProfileMenuTile(
+            icon: Icons.info_outline,
+            label: 'About SARAP',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AboutScreen()),
             ),
           ),
           ProfileMenuTile(

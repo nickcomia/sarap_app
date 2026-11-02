@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../models.dart';
+import '../../theme.dart';
 import '../../services/firebase_service.dart';
 import 'image_url_field.dart';
 import 'location_input.dart';
+import 'price_range.dart';
 
 /// Adds a restaurant, or edits one when [restaurant] is given.
 class AdminAddRestaurantScreen extends StatefulWidget {
@@ -23,20 +26,51 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
   final _ratingCtrl = TextEditingController(text: '4.5');
   final _imageCtrl = TextEditingController();
   final _locationCtrl = TextEditingController();
+  final _minPriceCtrl = TextEditingController();
+  final _maxPriceCtrl = TextEditingController();
 
   String _type = 'Restaurant';
-  String _priceRange = '₱';
+  bool _openEnded = false;
+  String? _oldPriceText; // shown when the saved price was not a range (e.g. "₱₱")
   bool _saving = false;
 
-  static const _baseTypes = ['Café', 'Restaurant', 'Karinderyá', 'Street food'];
-  static const _basePrices = ['₱', '₱₱', '₱₱₱'];
+  /// Establishment types used by the app. Keep these identical to the chips
+  /// in the onboarding screen, because matching compares the exact text.
+  static const _baseTypes = [
+    'Café',
+    'Restaurant',
+    'Karinderyá',
+    'Fast food',
+    'Eatery',
+    'Bakeshop',
+    'Street food',
+  ];
 
   bool get _isEdit => widget.restaurant != null;
 
   List<String> get _types =>
       _baseTypes.contains(_type) ? _baseTypes : [..._baseTypes, _type];
-  List<String> get _prices =>
-      _basePrices.contains(_priceRange) ? _basePrices : [..._basePrices, _priceRange];
+
+  /// Older imported data wrote "Cafe", "Karinderya" and "Fastfood". Map them to
+  /// the names used in the app so the dropdown and the matching agree.
+  static String _canonicalType(String raw) {
+    final key = raw.trim().toLowerCase().replaceAll('é', 'e').replaceAll('á', 'a').replaceAll(' ', '');
+    switch (key) {
+      case 'cafe':
+        return 'Café';
+      case 'karinderya':
+        return 'Karinderyá';
+      case 'fastfood':
+        return 'Fast food';
+      case 'bakery':
+      case 'bakeshop':
+        return 'Bakeshop';
+      case 'streetfood':
+        return 'Street food';
+      default:
+        return raw.trim();
+    }
+  }
 
   @override
   void initState() {
@@ -51,8 +85,15 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
       _ratingCtrl.text = r.rating.toString();
       _imageCtrl.text = r.imageUrl ?? '';
       _locationCtrl.text = '${r.latitude},${r.longitude}';
-      if (r.type.isNotEmpty) _type = r.type;
-      if (r.priceRange.isNotEmpty) _priceRange = r.priceRange;
+      if (r.type.isNotEmpty) _type = _canonicalType(r.type);
+      final range = parsePriceRange(r.priceRange);
+      if (range != null) {
+        _minPriceCtrl.text = range.min.toString();
+        _maxPriceCtrl.text = range.max.toString();
+        _openEnded = range.openEnded;
+      } else if (r.priceRange.isNotEmpty) {
+        _oldPriceText = r.priceRange;
+      }
     }
   }
 
@@ -66,6 +107,8 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
     _ratingCtrl.dispose();
     _imageCtrl.dispose();
     _locationCtrl.dispose();
+    _minPriceCtrl.dispose();
+    _maxPriceCtrl.dispose();
     super.dispose();
   }
 
@@ -73,6 +116,10 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
     if (!_formKey.currentState!.validate()) return;
     final loc = parseLatLng(_locationCtrl.text);
     if (loc == null) return;
+
+    final minPrice = int.parse(_minPriceCtrl.text.trim());
+    final maxPrice = int.parse(_maxPriceCtrl.text.trim());
+    final priceText = formatPriceRange(minPrice, maxPrice, openEnded: _openEnded);
 
     final image = _imageCtrl.text.trim();
     final tags = _tagsCtrl.text
@@ -90,7 +137,7 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
           name: _nameCtrl.text.trim(),
           type: _type,
           cuisine: _cuisineCtrl.text.trim(),
-          priceRange: _priceRange,
+          priceRange: priceText,
           rating: rating,
           address: _addressCtrl.text.trim(),
           description: _descriptionCtrl.text.trim(),
@@ -98,13 +145,15 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
           latitude: loc.lat,
           longitude: loc.lng,
           imageUrl: image.isEmpty ? null : image,
+          priceMin: minPrice,
+          priceMax: maxPrice,
         );
       } else {
         await FirebaseService.addRestaurant(
           name: _nameCtrl.text.trim(),
           type: _type,
           cuisine: _cuisineCtrl.text.trim(),
-          priceRange: _priceRange,
+          priceRange: priceText,
           rating: rating,
           address: _addressCtrl.text.trim(),
           description: _descriptionCtrl.text.trim(),
@@ -112,6 +161,8 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
           latitude: loc.lat,
           longitude: loc.lng,
           imageUrl: image.isEmpty ? null : image,
+          priceMin: minPrice,
+          priceMax: maxPrice,
         );
       }
       if (mounted) Navigator.of(context).pop(true);
@@ -158,6 +209,14 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
     }
   }
 
+  String? _priceValidator(String? v) {
+    final s = v?.trim() ?? '';
+    if (s.isEmpty) return 'Required';
+    final n = int.tryParse(s);
+    if (n == null || n < 0) return 'Enter a whole number';
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -201,32 +260,70 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
                 TextFormField(
                   controller: _cuisineCtrl,
                   decoration:
-                      const InputDecoration(labelText: 'Cuisine (e.g. Filipino, Bakery)'),
+                      const InputDecoration(labelText: 'Cuisine (e.g. Filipino, Coffee, Pizza)'),
                   validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
                 ),
                 const SizedBox(height: 14),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: DropdownButtonFormField<String>(
-                        initialValue: _priceRange,
-                        decoration: const InputDecoration(labelText: 'Price range'),
-                        items: _prices
-                            .map((p) => DropdownMenuItem(value: p, child: Text(p)))
-                            .toList(),
-                        onChanged: (v) => setState(() => _priceRange = v!),
+                      child: TextFormField(
+                        controller: _minPriceCtrl,
+                        decoration: const InputDecoration(
+                            labelText: 'Lowest price (₱)', prefixText: '₱ '),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        validator: _priceValidator,
+                        onChanged: (_) => setState(() {}),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: TextFormField(
-                        controller: _ratingCtrl,
-                        decoration: const InputDecoration(labelText: 'Rating (1-5)'),
-                        keyboardType:
-                            const TextInputType.numberWithOptions(decimal: true),
+                        controller: _maxPriceCtrl,
+                        decoration: const InputDecoration(
+                            labelText: 'Highest price (₱)', prefixText: '₱ '),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        validator: (v) {
+                          final base = _priceValidator(v);
+                          if (base != null) return base;
+                          final lo = int.tryParse(_minPriceCtrl.text.trim());
+                          final hi = int.parse(v!.trim());
+                          if (lo != null && hi < lo) return 'Must be at least the lowest price';
+                          return null;
+                        },
+                        onChanged: (_) => setState(() {}),
                       ),
                     ),
                   ],
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('No upper limit (show the highest price with +)'),
+                  value: _openEnded,
+                  onChanged: (v) => setState(() => _openEnded = v),
+                ),
+                Builder(builder: (context) {
+                  final lo = int.tryParse(_minPriceCtrl.text.trim());
+                  final hi = int.tryParse(_maxPriceCtrl.text.trim());
+                  final preview = (lo != null && hi != null && hi >= lo)
+                      ? 'Shown in the app as: ${formatPriceRange(lo, hi, openEnded: _openEnded)}'
+                      : (_oldPriceText != null
+                          ? 'Saved price was "$_oldPriceText". Enter the actual lowest and highest price.'
+                          : 'Enter the cheapest and the most expensive item on the menu.');
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(preview,
+                        style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                  );
+                }),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _ratingCtrl,
+                  decoration: const InputDecoration(labelText: 'Rating (1-5)'),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 ),
                 const SizedBox(height: 14),
                 TextFormField(

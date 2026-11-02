@@ -210,11 +210,21 @@ class UserProfile {
 class Restaurant {
   final String id;
   final String name;
-  final String type; // Café, Restaurant, Karinderyá, Street food
+
+  /// One or more establishment types separated by commas, for example
+  /// "Café", "Fast food", or "Restaurant, Bar".
+  final String type;
   final String cuisine;
   double distanceKm; // live-updated from GPS once location is available
   int matchPercent; // computed live by MatchingEngine against the user's profile
-  final String priceRange; // ₱, ₱₱, ₱₱₱
+
+  /// Price level ₱, ₱₱ or ₱₱₱. Worked out from [priceMin] and [priceMax]
+  /// whenever the administrator enters them.
+  final String priceRange;
+
+  /// Lowest and highest dish price in pesos, entered by the administrator.
+  final double? priceMin;
+  final double? priceMax;
   final double rating;
   final String address;
   final String description;
@@ -233,6 +243,8 @@ class Restaurant {
     required this.distanceKm,
     required this.matchPercent,
     required this.priceRange,
+    this.priceMin,
+    this.priceMax,
     required this.rating,
     required this.address,
     required this.description,
@@ -243,6 +255,41 @@ class Restaurant {
     this.imageUrl,
     this.isSaved = false,
   });
+
+  /// True when a usable lowest and highest price are stored.
+  bool get hasPriceRange =>
+      priceMin != null && priceMax != null && priceMin! > 0 && priceMax! >= priceMin!;
+
+  /// A middle price that one expensive dish cannot pull up
+  /// (the geometric mean of the lowest and highest price).
+  double? get typicalPrice => hasPriceRange ? sqrt(priceMin! * priceMax!) : null;
+
+  /// "₱200 – ₱1,240" when a range is known, otherwise the ₱ level.
+  String get priceLabel {
+    if (!hasPriceRange) return priceRange;
+    if (priceMin == priceMax) return _peso(priceMin!);
+    return '${_peso(priceMin!)} – ${_peso(priceMax!)}';
+  }
+
+  /// Each establishment type of this restaurant, e.g. ['Restaurant', 'Bar'].
+  List<String> get types =>
+      type.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
+
+  static String _peso(double v) {
+    final digits = v.round().toString();
+    final withCommas = digits.replaceAllMapped(
+        RegExp(r'\B(?=(\d{3})+(?!\d))'), (m) => ',');
+    return '₱$withCommas';
+  }
+
+  /// Price level from the typical price. The cut-offs match the budget
+  /// slider: up to ₱100, up to ₱250, and above.
+  static String priceTierFor(double min, double max) {
+    final typical = sqrt(min * max);
+    if (typical <= 100) return '₱';
+    if (typical <= 250) return '₱₱';
+    return '₱₱₱';
+  }
 }
 
 /// A single dish/product on a restaurant's menu — added via the in-app

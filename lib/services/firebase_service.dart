@@ -327,6 +327,8 @@ class FirebaseService {
       distanceKm: (r['distanceKm'] as num?)?.toDouble() ?? 0,
       matchPercent: (r['matchPercent'] as num?)?.toInt() ?? 0,
       priceRange: r['priceRange'] ?? '₱',
+      priceMin: (r['priceMin'] as num?)?.toDouble(),
+      priceMax: (r['priceMax'] as num?)?.toDouble(),
       rating: (r['rating'] as num?)?.toDouble() ?? 0,
       address: r['address'] ?? '',
       description: r['description'] ?? '',
@@ -348,6 +350,8 @@ class FirebaseService {
         'distanceKm': r.distanceKm,
         'matchPercent': r.matchPercent,
         'priceRange': r.priceRange,
+        'priceMin': r.priceMin,
+        'priceMax': r.priceMax,
         'rating': r.rating,
         'address': r.address,
         'description': r.description,
@@ -390,7 +394,9 @@ class FirebaseService {
     required String name,
     required String type,
     required String cuisine,
-    required String priceRange,
+    String? priceRange, // optional: derived from priceMin/priceMax when given
+    num? priceMin, // lowest dish price in PHP (int or double)
+    num? priceMax, // highest dish price in PHP (int or double)
     required double rating,
     required String address,
     required String description,
@@ -406,7 +412,7 @@ class FirebaseService {
       'cuisine': cuisine,
       'distanceKm': 0.0,
       'matchPercent': 80, // placeholder until the matching algorithm runs
-      'priceRange': priceRange,
+      ..._priceFields(priceRange, priceMin, priceMax),
       'rating': rating,
       'address': address,
       'description': description,
@@ -417,6 +423,35 @@ class FirebaseService {
       'imageUrl': imageUrl,
     });
     return doc.id;
+  }
+
+  /// Turns the admin's price inputs into the fields stored on a restaurant.
+  /// With a lowest and highest price, the tier shown in the app (₱, ₱₱, ₱₱₱)
+  /// is derived automatically, so the two can never disagree. Without them
+  /// (old forms), the tier passed in is kept.
+  static Map<String, dynamic> _priceFields(String? tier, num? min, num? max) {
+    if (min != null || max != null) {
+      if (min == null || max == null) {
+        throw ApiException('Enter both the lowest and the highest price');
+      }
+      final lo = min.toDouble();
+      final hi = max.toDouble();
+      if (!lo.isFinite || !hi.isFinite || lo <= 0) {
+        throw ApiException('The lowest price must be greater than 0');
+      }
+      if (hi < lo) {
+        throw ApiException('The highest price cannot be lower than the lowest price');
+      }
+      if (hi > 100000) {
+        throw ApiException('The highest price looks too large — check the amount');
+      }
+      return {
+        'priceRange': Restaurant.priceTierFor(lo, hi),
+        'priceMin': lo,
+        'priceMax': hi,
+      };
+    }
+    return {'priceRange': tier ?? '₱₱', 'priceMin': null, 'priceMax': null};
   }
 
   /// Rejects menu values that would break calorie arithmetic or create a
@@ -546,7 +581,9 @@ class FirebaseService {
     required String name,
     required String type,
     required String cuisine,
-    required String priceRange,
+    String? priceRange, // optional: derived from priceMin/priceMax when given
+    num? priceMin, // lowest dish price in PHP (int or double)
+    num? priceMax, // highest dish price in PHP (int or double)
     required double rating,
     required String address,
     required String description,
@@ -559,7 +596,7 @@ class FirebaseService {
       'name': name,
       'type': type,
       'cuisine': cuisine,
-      'priceRange': priceRange,
+      ..._priceFields(priceRange, priceMin, priceMax),
       'rating': rating,
       'address': address,
       'description': description,
