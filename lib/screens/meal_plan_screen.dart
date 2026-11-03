@@ -8,6 +8,9 @@ import 'onboarding/onboarding_flow.dart';
 /// Figure 15: 7-Day Meal Plan Screen.
 /// (1) Day selector tabs, (2) meal edit / swap icons, (3) "Tap to pick a
 /// dinner option" prompt for empty slots.
+///
+/// Merienda is optional: an empty merienda slot is normal, so it is not
+/// counted as a missing meal in the summary or in the reminder.
 class MealPlanScreen extends StatefulWidget {
   const MealPlanScreen({super.key});
 
@@ -58,7 +61,11 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
   }
 
   Future<void> _sendTodayReminder(DayPlan day, int remainingKcal) async {
-    final unfilled = day.meals.where((m) => !m.isFilled).map((m) => m.slot.label).toList();
+    // Merienda is optional, so it is never listed as "don't forget".
+    final unfilled = day.meals
+        .where((m) => !m.isFilled && m.slot != MealSlot.merienda)
+        .map((m) => m.slot.label)
+        .toList();
     final filled = day.meals.where((m) => m.isFilled).map((m) => m.dishName).join(', ');
     final left = remainingKcal >= 0
         ? '$remainingKcal kcal remaining'
@@ -115,7 +122,13 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     // Not clamped: a negative value means the user is over target.
     final remaining = state.remainingFor(day);
     final colors = context.colors;
-    final loggedMeals = day.meals.where((m) => m.isFilled).length;
+    // Merienda only counts as a meal once it has a dish, so skipping it
+    // never looks like a missing meal ("3 of 3", not "3 of 4").
+    final countedMeals = day.meals
+        .where((m) => m.slot != MealSlot.merienda || m.isFilled)
+        .toList();
+    final loggedMeals = countedMeals.where((m) => m.isFilled).length;
+    final totalMeals = countedMeals.length;
 
     return CustomScrollView(
       slivers: [
@@ -190,7 +203,8 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                 ),
                 if (complete) ...[
                   const SizedBox(height: 10),
-                  _summaryCard(context, day, loggedMeals, target, remaining),
+                  _summaryCard(
+                      context, day, loggedMeals, totalMeals, target, remaining),
                 ],
                 if (state.planMessage != null) ...[
                   const SizedBox(height: 12),
@@ -263,8 +277,8 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
   /// Per-day nutrition summary. Only calories are tracked in the plan
   /// (protein/carbs/fat are not stored on plan entries), so only calories
   /// are shown — nothing is estimated or invented.
-  Widget _summaryCard(BuildContext context, DayPlan day, int logged, int target,
-      int remaining) {
+  Widget _summaryCard(BuildContext context, DayPlan day, int logged, int total,
+      int target, int remaining) {
     final colors = context.colors;
     final pct = target <= 0 ? 0 : ((day.totalCalories / target) * 100).round();
     final over = remaining < 0;
@@ -285,7 +299,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            '$logged of ${day.meals.length} meals • ${day.totalCalories} kcal '
+            '$logged of $total meals • ${day.totalCalories} kcal '
             'of $target kcal ($pct%)'
             '${over ? ' • ${-remaining} kcal over target' : ' • $remaining kcal left'}',
             style: TextStyle(

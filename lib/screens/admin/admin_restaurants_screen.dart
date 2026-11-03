@@ -6,8 +6,9 @@ import '../../widgets/common.dart';
 import 'admin_add_restaurant_screen.dart';
 import 'admin_menu_items_screen.dart';
 
-/// Lists every restaurant straight from Firestore. Each row can be opened
-/// (menu items), edited, or hidden from / shown in the customer app.
+/// Lists every restaurant straight from Firestore, sorted A to Z by name.
+/// Each row can be opened (menu items), edited, or hidden from / shown in
+/// the customer app. New restaurants are added from the sidebar.
 class AdminRestaurantsScreen extends StatefulWidget {
   const AdminRestaurantsScreen({super.key});
 
@@ -32,9 +33,13 @@ class _AdminRestaurantsScreenState extends State<AdminRestaurantsScreen> {
         FirebaseService.fetchRestaurants(forceServer: true, includeUnavailable: true),
         FirebaseService.fetchRestaurantAvailability(),
       ]);
+      // Sort a copy A to Z by name, ignoring upper/lower case.
+      final sorted = [...(results[0] as List<Restaurant>)]
+        ..sort((a, b) =>
+            a.name.trim().toLowerCase().compareTo(b.name.trim().toLowerCase()));
       if (mounted) {
         setState(() {
-          _restaurants = results[0] as List<Restaurant>;
+          _restaurants = sorted;
           _available = results[1] as Map<String, bool>;
           _error = null;
         });
@@ -180,16 +185,6 @@ class _AdminRestaurantsScreenState extends State<AdminRestaurantsScreen> {
                     },
                   ),
                 ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          final added = await Navigator.of(context).push<bool>(
-            MaterialPageRoute(builder: (_) => const AdminAddRestaurantScreen()),
-          );
-          if (added == true) _reload();
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('Add restaurant'),
-      ),
     );
   }
 }
