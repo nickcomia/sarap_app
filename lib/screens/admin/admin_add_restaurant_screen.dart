@@ -122,7 +122,12 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
       _locationCtrl.text = '${r.latitude},${r.longitude}';
       if (r.type.isNotEmpty) _type = _canonicalType(r.type);
       final range = parsePriceRange(r.priceRange);
-      if (range != null) {
+      if (r.priceMin != null && r.priceMax != null) {
+        // The saved numbers win: the tier text ("₱₱") has no range in it.
+        _minPriceCtrl.text = r.priceMin!.round().toString();
+        _maxPriceCtrl.text = r.priceMax!.round().toString();
+        _openEnded = range?.openEnded ?? false;
+      } else if (range != null) {
         _minPriceCtrl.text = range.min.toString();
         _maxPriceCtrl.text = range.max.toString();
         _openEnded = range.openEnded;
