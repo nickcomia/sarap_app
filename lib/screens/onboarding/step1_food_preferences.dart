@@ -12,7 +12,15 @@ class Step1FoodPreferences extends StatefulWidget {
 class _Step1FoodPreferencesState extends State<Step1FoodPreferences> {
   final profile = AppState.instance.profile;
 
-  static const establishmentTypes = ['Café', 'Restaurant', 'Karinderyá', 'Street food'];
+     static const establishmentTypes = [
+     'Café',
+     'Restaurant',
+     'Karinderyá',
+     'Fast food',
+     'Eatery',
+     'Bakeshop',
+     'Street food',
+   ];
   static const cuisines = [
     'Filipino',
     'Asian fusion',

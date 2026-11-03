@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../models.dart';
 import '../../theme.dart';
 import '../../services/firebase_service.dart';
@@ -17,9 +18,13 @@ class AdminAddRestaurantScreen extends StatefulWidget {
 }
 
 class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
+  // Keys used to remember the last price range between new restaurants.
+  static const _kLastMinPrice = 'lastMinPrice';
+  static const _kLastMaxPrice = 'lastMaxPrice';
+  static const _kLastOpenEnded = 'lastOpenEnded';
+
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
-  final _cuisineCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
   final _tagsCtrl = TextEditingController();
@@ -30,6 +35,7 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
   final _maxPriceCtrl = TextEditingController();
 
   String _type = 'Restaurant';
+  String _cuisine = 'Filipino';
   bool _openEnded = false;
   String? _oldPriceText; // shown when the saved price was not a range (e.g. "₱₱")
   bool _saving = false;
@@ -46,10 +52,29 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
     'Street food',
   ];
 
+  /// Cuisines used by the app. Keep these identical to the cuisine chips in
+  /// the onboarding screen (Step1FoodPreferences), because matching compares
+  /// the exact text.
+  static const _baseCuisines = [
+    'Filipino',
+    'Asian fusion',
+    'Comfort food',
+    'Seafood',
+    'Silog meals',
+    'Bakery',
+    'Western',
+  ];
+
   bool get _isEdit => widget.restaurant != null;
 
   List<String> get _types =>
       _baseTypes.contains(_type) ? _baseTypes : [..._baseTypes, _type];
+
+  /// If an older restaurant has a cuisine that is not in the list (for example
+  /// "Coffee"), keep it selectable so the form still opens; the admin can then
+  /// change it to one of the standard cuisines.
+  List<String> get _cuisines =>
+      _baseCuisines.contains(_cuisine) ? _baseCuisines : [..._baseCuisines, _cuisine];
 
   /// Older imported data wrote "Cafe", "Karinderya" and "Fastfood". Map them to
   /// the names used in the app so the dropdown and the matching agree.
@@ -72,13 +97,23 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
     }
   }
 
+  /// Maps a saved cuisine to the exact name used in the app when it differs
+  /// only by capitalization or spacing (for example "filipino" or "Silog Meals").
+  static String _canonicalCuisine(String raw) {
+    final key = raw.trim().toLowerCase().replaceAll(' ', '');
+    for (final c in _baseCuisines) {
+      if (c.toLowerCase().replaceAll(' ', '') == key) return c;
+    }
+    return raw.trim();
+  }
+
   @override
   void initState() {
     super.initState();
     final r = widget.restaurant;
     if (r != null) {
       _nameCtrl.text = r.name;
-      _cuisineCtrl.text = r.cuisine;
+      if (r.cuisine.trim().isNotEmpty) _cuisine = _canonicalCuisine(r.cuisine);
       _addressCtrl.text = r.address;
       _descriptionCtrl.text = r.description;
       _tagsCtrl.text = r.tags.join(', ');
@@ -94,13 +129,46 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
       } else if (r.priceRange.isNotEmpty) {
         _oldPriceText = r.priceRange;
       }
+    } else {
+      // New restaurant: reuse the last price range the admin entered.
+      _loadSavedPrice();
+    }
+  }
+
+  /// Fills the price fields with the last saved range (new restaurants only).
+  Future<void> _loadSavedPrice() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      setState(() {
+        if (_minPriceCtrl.text.isEmpty) {
+          _minPriceCtrl.text = prefs.getString(_kLastMinPrice) ?? '';
+        }
+        if (_maxPriceCtrl.text.isEmpty) {
+          _maxPriceCtrl.text = prefs.getString(_kLastMaxPrice) ?? '';
+        }
+        _openEnded = prefs.getBool(_kLastOpenEnded) ?? false;
+      });
+    } catch (_) {
+      // Storage unavailable: just start with empty fields.
+    }
+  }
+
+  /// Remembers the price range so the next new restaurant starts with it.
+  Future<void> _rememberPrice() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kLastMinPrice, _minPriceCtrl.text.trim());
+      await prefs.setString(_kLastMaxPrice, _maxPriceCtrl.text.trim());
+      await prefs.setBool(_kLastOpenEnded, _openEnded);
+    } catch (_) {
+      // Not critical: the restaurant is already saved.
     }
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
-    _cuisineCtrl.dispose();
     _addressCtrl.dispose();
     _descriptionCtrl.dispose();
     _tagsCtrl.dispose();
@@ -136,7 +204,7 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
           id: widget.restaurant!.id,
           name: _nameCtrl.text.trim(),
           type: _type,
-          cuisine: _cuisineCtrl.text.trim(),
+          cuisine: _cuisine,
           priceRange: priceText,
           rating: rating,
           address: _addressCtrl.text.trim(),
@@ -152,7 +220,7 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
         await FirebaseService.addRestaurant(
           name: _nameCtrl.text.trim(),
           type: _type,
-          cuisine: _cuisineCtrl.text.trim(),
+          cuisine: _cuisine,
           priceRange: priceText,
           rating: rating,
           address: _addressCtrl.text.trim(),
@@ -164,6 +232,8 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
           priceMin: minPrice,
           priceMax: maxPrice,
         );
+        // Keep this price range for the next new restaurant.
+        await _rememberPrice();
       }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
@@ -257,11 +327,13 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
                   onChanged: (v) => setState(() => _type = v!),
                 ),
                 const SizedBox(height: 14),
-                TextFormField(
-                  controller: _cuisineCtrl,
-                  decoration:
-                      const InputDecoration(labelText: 'Cuisine (e.g. Filipino, Coffee, Pizza)'),
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                DropdownButtonFormField<String>(
+                  initialValue: _cuisine,
+                  decoration: const InputDecoration(labelText: 'Cuisine'),
+                  items: _cuisines
+                      .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                      .toList(),
+                  onChanged: (v) => setState(() => _cuisine = v!),
                 ),
                 const SizedBox(height: 14),
                 Row(
