@@ -1,6 +1,14 @@
 import 'dart:math';
 import '../models.dart';
 
+/// A short note shown on a restaurant card about how it fits the user's
+/// health goal, for example "High calorie for your goal".
+class GoalNote {
+  final String text;
+  final bool positive;
+  const GoalNote(this.text, this.positive);
+}
+
 /// Computes a live "match %" between a user's profile and a restaurant —
 /// this is the app's AI/ML-assisted recommendation layer referenced in
 /// the manuscript. It's a transparent, explainable weighted-scoring
@@ -10,13 +18,19 @@ import '../models.dart';
 /// auditable — useful both for demoing to a panel and for debugging why
 /// a place did or didn't rank highly.
 ///
-/// Weights (sum to 100):
+/// Base weights (sum to 100):
 ///   Cuisine preference match      — 25
 ///   Establishment type match      — 15
 ///   Budget fit                    — 20
 ///   Dietary restriction compliance — 20
 ///   Rating quality                — 10
 ///   Distance convenience          — 10
+///
+/// Health-goal fit: when the restaurant's menu calories are known, the base
+/// score is blended with a "health fit" score (see [healthFit]). The share
+/// of the final score decided by health fit depends on the goal: 45% for
+/// Lose weight, 15% for Gain weight, 10% for Maintain weight. Restaurants
+/// with no menu data keep their base score unchanged.
 class MatchingEngine {
   static const _priceRankMap = {'₱': 1, '₱₱': 2, '₱₱₱': 3};
 
@@ -103,7 +117,120 @@ class MatchingEngine {
     final distanceScore = (1 - (restaurant.distanceKm / 5)).clamp(0.0, 1.0);
     score += distanceScore * 10;
 
-    return score.round().clamp(0, 100);
+    final base = score.clamp(0.0, 100.0);
+
+    // --- Health-goal fit ---
+    // Blend in how well the restaurant's dishes suit the user's calorie
+    // goal. Without menu data the base score is used as it is.
+    final fit = healthFit(profile, restaurant);
+    if (fit == null) return base.round().clamp(0, 100);
+    final w = _healthWeight(profile.healthGoal);
+    return (base * (1 - w) + fit * 100 * w).round().clamp(0, 100);
+  }
+
+  // ------------------------------------------------------------------
+  // Health-goal fit
+  // ------------------------------------------------------------------
+
+  /// Share of the final match score decided by health fit.
+  static double _healthWeight(HealthGoal goal) {
+    switch (goal) {
+      case HealthGoal.lose:
+        return 0.45;
+      case HealthGoal.gain:
+        return 0.15;
+      case HealthGoal.maintain:
+        return 0.10;
+    }
+  }
+
+  /// Calories one meal should roughly hold: a third of the daily target.
+  /// Null when the health profile is incomplete, so no health score is
+  /// calculated from placeholder defaults.
+  static int? mealCalorieBudget(UserProfile profile) {
+    if (!profile.hasValidHealthData) return null;
+    final target = profile.dailyCalorieTarget.clamp(1200, 4000);
+    return (target / 3).round();
+  }
+
+  /// 1.0 up to [limit] kcal, then falling in a straight line to 0 at twice
+  /// the limit.
+  static double _overLimitScore(int calories, double limit) {
+    if (calories <= limit) return 1.0;
+    return (1 - (calories - limit) / limit).clamp(0.0, 1.0);
+  }
+
+  /// How well one dish suits the goal, from 0 (not at all) to 1 (fully).
+  ///   Lose weight     — up to one meal budget is fine, heavier dishes score less
+  ///   Maintain weight — up to 1.2 meal budgets is fine
+  ///   Gain weight     — dishes of at least 0.7 of a meal budget are fine
+  static double _dishHealthScore(HealthGoal goal, int calories, int budget) {
+    switch (goal) {
+      case HealthGoal.lose:
+        return _overLimitScore(calories, budget.toDouble());
+      case HealthGoal.maintain:
+        return _overLimitScore(calories, budget * 1.2);
+      case HealthGoal.gain:
+        final floor = budget * 0.7;
+        return calories >= floor ? 1.0 : calories / floor;
+    }
+  }
+
+  /// All-you-can-eat style places (unli, buffet, eat-all-you-can, samgyup)
+  /// have no calorie limit per person, so they count as high calorie even
+  /// when no menu item says so. Matches whole words for the general terms,
+  /// so "sunlight" does not count. Remove "samgyup|samgyeopsal" below if
+  /// some of your samgyup places are not unlimited.
+  static final _unlimitedPattern = RegExp(
+    r'\bunli\b|\bunlimited\b|all[\s-]*you[\s-]*can[\s-]*eat|'
+    r'eat[\s-]*all[\s-]*you[\s-]*can|\bbuffet\b|samgyup|samgyeopsal',
+  );
+
+  static bool _isUnlimited(Restaurant r) {
+    final text = '${r.name} ${r.tags.join(' ')}'.toLowerCase();
+    return _unlimitedPattern.hasMatch(text);
+  }
+
+  /// How well a restaurant suits the user's calorie goal, from 0 to 1, or
+  /// null when it cannot be judged (incomplete health profile, or the
+  /// restaurant has no menu with calories and is not an all-you-can-eat).
+  static double? healthFit(UserProfile profile, Restaurant restaurant) {
+    final budget = mealCalorieBudget(profile);
+    if (budget == null) return null;
+    final goal = profile.healthGoal;
+
+    double? fit;
+    if (restaurant.menuCalories.isNotEmpty) {
+      var sum = 0.0;
+      for (final c in restaurant.menuCalories) {
+        sum += _dishHealthScore(goal, c, budget);
+      }
+      fit = sum / restaurant.menuCalories.length;
+    }
+
+    if (goal != HealthGoal.gain && _isUnlimited(restaurant)) {
+      // Never better than "mostly too heavy", whatever the menu lists.
+      return min(fit ?? 0.3, 0.3);
+    }
+    return fit;
+  }
+
+  /// A short label for the restaurant card, or null when there is nothing
+  /// clear to say.
+  static GoalNote? goalNote(UserProfile profile, Restaurant restaurant) {
+    final fit = healthFit(profile, restaurant);
+    if (fit == null) return null;
+    switch (profile.healthGoal) {
+      case HealthGoal.lose:
+        if (fit >= 0.75) return const GoalNote('Light options for your goal', true);
+        if (fit <= 0.35) return const GoalNote('High calorie for your goal', false);
+        return null;
+      case HealthGoal.gain:
+        if (fit >= 0.75) return const GoalNote('Hearty meals for your goal', true);
+        return null;
+      case HealthGoal.maintain:
+        return null;
+    }
   }
 
   /// Comparison key that ignores case, accents, spaces and punctuation, so

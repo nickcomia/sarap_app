@@ -258,6 +258,9 @@ class AppState extends ChangeNotifier {
         missingHealthFields = ['age', 'height', 'weight'];
         _healthProfileLoaded = true;
       }
+      // The match score now depends on the health goal and calorie target,
+      // so refresh it as soon as the saved profile is known.
+      MatchingEngine.recomputeAll(profile, restaurants);
       notifyListeners();
     } catch (_) {
       // Offline or Firebase unreachable. If we never managed to load the
@@ -372,27 +375,62 @@ class AppState extends ChangeNotifier {
   Future<void> _refreshRestaurantsInBackground() async {
     try {
       final fresh = await FirebaseService.fetchRestaurants(forceServer: true);
-      if (fresh.isEmpty) return;
-      _applyRestaurants(fresh);
-      MatchingEngine.recomputeAll(profile, restaurants);
-      notifyListeners();
+      if (fresh.isNotEmpty) {
+        _applyRestaurants(fresh);
+        MatchingEngine.recomputeAll(profile, restaurants);
+        notifyListeners();
+      }
     } catch (e) {
       debugPrint('BACKGROUND REFRESH ERROR: $e');
+    }
+
+    // The menus' calories feed the health-goal part of the match score.
+    await _refreshMenuCalories();
+  }
+
+  /// Loads every restaurant's menu once and keeps the calories of its
+  /// usable dishes on the Restaurant, so the match score can judge how well
+  /// a restaurant suits the user's goal (for example, Lose weight). Needs
+  /// no extra setup: it reuses the same query as the meal planner. If it
+  /// fails, restaurants simply keep their score without the health part.
+  Future<void> _refreshMenuCalories() async {
+    try {
+      final items = await FirebaseService.fetchAllMenuItems();
+      final byRestaurant = <String, List<int>>{};
+      for (final item in items) {
+        if (!MatchingEngine.isUsable(item)) continue;
+        byRestaurant.putIfAbsent(item.restaurantId, () => <int>[]).add(item.calories);
+      }
+      for (final r in restaurants) {
+        r.menuCalories = byRestaurant[r.id] ?? <int>[];
+      }
+      MatchingEngine.recomputeAll(profile, restaurants);
+      notifyListeners();
+
+      // The ranking has just changed (health fit now known), so any AI
+      // picks built from the earlier ranking are stale. Rebuild them.
+      await _clearAiPicksCache();
+      loadAiRecommendations(forceRefresh: true);
+    } catch (e) {
+      debugPrint('MENU CALORIES ERROR: $e');
     }
   }
 
   /// Swaps in a new restaurant list while keeping what the app already
-  /// knows locally (saved hearts and GPS distances), so a background
-  /// refresh doesn't visibly reset them.
+  /// knows locally (saved hearts, GPS distances and menu calories), so a
+  /// background refresh doesn't visibly reset them.
   void _applyRestaurants(List<Restaurant> incoming) {
     final savedIds = {for (final r in restaurants) if (r.isSaved) r.id};
     final distanceById = {for (final r in restaurants) r.id: r.distanceKm};
+    final caloriesById = {for (final r in restaurants) r.id: r.menuCalories};
     for (final r in incoming) {
       r.isSaved = savedIds.contains(r.id);
       if (userLat != null) {
         final d = distanceById[r.id];
         if (d != null) r.distanceKm = d;
       }
+      final c = caloriesById[r.id];
+      if (c != null) r.menuCalories = c;
     }
     restaurants = incoming;
   }
@@ -912,6 +950,7 @@ class AppState extends ChangeNotifier {
     for (final r in restaurants) {
       r.isSaved = false;
     }
+    MatchingEngine.recomputeAll(profile, restaurants);
     notifyListeners();
     _clearAiPicksCache();
   }

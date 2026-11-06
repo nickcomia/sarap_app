@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../theme.dart';
 import '../models.dart';
+import '../app_state.dart';
+import '../services/matching_engine.dart';
 
 /// Renders a photo from either a bundled local asset path
 /// (e.g. "assets/photos/adobo.jpg") or a network URL, auto-detected,
@@ -206,6 +208,7 @@ class RestaurantCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final note = MatchingEngine.goalNote(AppState.instance.profile, restaurant);
     return InkWell(
       borderRadius: BorderRadius.circular(22),
       onTap: onTap,
@@ -307,6 +310,37 @@ class RestaurantCard extends StatelessWidget {
                               fontWeight: FontWeight.w800, color: colors.navy)),
                     ],
                   ),
+                  if (note != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(
+                          note.positive
+                              ? Icons.check_circle_rounded
+                              : Icons.local_fire_department_rounded,
+                          size: 14,
+                          color: note.positive
+                              ? Colors.green.shade600
+                              : Colors.orange.shade700,
+                        ),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            note.text,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                              color: note.positive
+                                  ? Colors.green.shade600
+                                  : Colors.orange.shade700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),

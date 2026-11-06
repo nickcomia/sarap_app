@@ -218,6 +218,12 @@ class Restaurant {
   double distanceKm; // live-updated from GPS once location is available
   int matchPercent; // computed live by MatchingEngine against the user's profile
 
+  /// Calories of this restaurant's usable menu dishes. Filled in by
+  /// AppState once the menus are loaded; empty means "no menu data yet".
+  /// Used by MatchingEngine to judge how well the restaurant fits the
+  /// user's health goal.
+  List<int> menuCalories = [];
+
   /// Price level ₱, ₱₱ or ₱₱₱. Worked out from [priceMin] and [priceMax]
   /// whenever the administrator enters them.
   final String priceRange;
