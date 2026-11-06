@@ -4,9 +4,11 @@ import '../../models.dart';
 import '../../services/firebase_service.dart';
 import '../../widgets/common.dart';
 import 'admin_add_menu_item_screen.dart';
+import 'admin_import_menu_screen.dart';
 
 /// Menu items of one restaurant. Tap an item to edit or delete it; use the
-/// switch to hide it from / show it in the customer app.
+/// switch to hide it from / show it in the customer app. Items can be added
+/// one by one, or many at once by importing a .csv file.
 class AdminMenuItemsScreen extends StatefulWidget {
   final Restaurant restaurant;
   const AdminMenuItemsScreen({super.key, required this.restaurant});
@@ -74,6 +76,27 @@ class _AdminMenuItemsScreenState extends State<AdminMenuItemsScreen> {
     if (changed == true) _reload();
   }
 
+  Future<void> _add() async {
+    final added = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => AdminAddMenuItemScreen(restaurantId: widget.restaurant.id),
+      ),
+    );
+    if (added == true) _reload();
+  }
+
+  Future<void> _import() async {
+    final imported = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => AdminImportMenuScreen(
+          restaurantId: widget.restaurant.id,
+          restaurantName: widget.restaurant.name,
+        ),
+      ),
+    );
+    if (imported == true) _reload();
+  }
+
   @override
   Widget build(BuildContext context) {
     final items = _items;
@@ -81,6 +104,11 @@ class _AdminMenuItemsScreenState extends State<AdminMenuItemsScreen> {
       appBar: AppBar(
         title: Text(widget.restaurant.name),
         actions: [
+          IconButton(
+            tooltip: 'Import menu from CSV',
+            onPressed: _import,
+            icon: const Icon(Icons.upload_file),
+          ),
           IconButton(
             tooltip: 'Reload',
             onPressed: _reload,
@@ -111,7 +139,9 @@ class _AdminMenuItemsScreenState extends State<AdminMenuItemsScreen> {
                             Text('No menu items yet',
                                 style: TextStyle(fontWeight: FontWeight.w700)),
                             SizedBox(height: 6),
-                            Text('Tap the button below to add the first dish.',
+                            Text(
+                                'Tap "Add item" to add one dish, or "Import CSV" to add many at once.',
+                                textAlign: TextAlign.center,
                                 style: TextStyle(
                                     color: AppColors.muted, fontSize: 13)),
                           ],
@@ -119,7 +149,7 @@ class _AdminMenuItemsScreenState extends State<AdminMenuItemsScreen> {
                       ),
                     )
                   : ListView.separated(
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 150),
                       itemCount: items.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (context, i) {
@@ -196,18 +226,24 @@ class _AdminMenuItemsScreenState extends State<AdminMenuItemsScreen> {
                         );
                       },
                     ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          final added = await Navigator.of(context).push<bool>(
-            MaterialPageRoute(
-              builder: (_) =>
-                  AdminAddMenuItemScreen(restaurantId: widget.restaurant.id),
-            ),
-          );
-          if (added == true) _reload();
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('Add item'),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'import_menu_fab',
+            onPressed: _import,
+            icon: const Icon(Icons.upload_file),
+            label: const Text('Import CSV'),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'add_menu_fab',
+            onPressed: _add,
+            icon: const Icon(Icons.add),
+            label: const Text('Add item'),
+          ),
+        ],
       ),
     );
   }
