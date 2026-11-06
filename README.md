@@ -1,83 +1,77 @@
-# SARAP — Smart Food Finder (Flutter App)
+# SARAP — AI-Assisted Restaurant Finder with Personalized Meal Planning
 
-A working Flutter implementation of the UI designs from the SARAP capstone
-manuscript's **User Design Interface** section (Figures 7–16): splash
-screen, sign in/register, the 4-step onboarding flow (food preferences,
-taste & budget, health profile, summary), the Home/Discovery feed, the
-restaurant detail screen, the 7-day meal plan, Saved places, and Profile.
+SARAP is a Flutter mobile app that helps people in **Tanauan City, Batangas** find restaurants and plan meals that fit their health profile, food preferences, and budget. It was developed as a capstone project.
 
-It's a self-contained, **local-data prototype** — no backend server is
-required to run it. Restaurant data is bundled as sample Tanauan City
-listings, and BMI / BMR / TDEE / calorie-target math is computed on-device
-from what the user enters in onboarding (Mifflin-St Jeor equation). The
-7-day meal plan is generated from that calorie target using sample dishes.
-This lets you run the whole app end-to-end immediately, then swap the
-mocked pieces (`lib/mock_data.dart`) for real API/GIS/AI calls later.
+## Download (Android)
+
+Get the latest APK from the **[Releases page](https://github.com/nickcomia/sarap_app/releases/latest)**.
+
+1. Download `SARAP.apk` on your Android phone.
+2. Allow **Install unknown apps** when Android asks.
+3. Tap **Install**. If Play Protect warns you, tap **Install anyway**.
+
+Requires Android 6.0 or newer.
+
+## Features
+
+- **Restaurant discovery:** browse nearby restaurants and menus, with map and location support.
+- **Personalized onboarding:** food preferences, taste and budget, and health profile.
+- **Meal planning:** daily calorie target computed on-device (BMI, BMR, TDEE using the Mifflin-St Jeor equation) and a 7-day meal plan built from it.
+- **AI-assisted picks:** menu recommendations generated with Gemini through Firebase AI Logic.
+- **Saved places and profile:** save favorite restaurants and manage your account.
+- **Sign-in:** email/password and Google sign-in through Firebase Authentication.
+- **Admin dashboard (web):** manage restaurants and menu items, import menu items from CSV, view users, and manage content.
+
+## Tech stack
+
+| Area | Technology |
+|---|---|
+| App | Flutter (Dart), Material 3 |
+| Backend | Firebase Authentication, Cloud Firestore, Firebase Storage, Firebase App Check |
+| AI | Firebase AI Logic (Gemini) |
+| Maps and location | Google Maps, Geolocator |
+| Admin dashboard | Flutter Web, hosted on Vercel |
 
 ## Project structure
 
-```
-lib/
-  main.dart                     # App entry point
-  theme.dart                    # Colors & ThemeData (matches the mockups)
-  models.dart                   # UserProfile, Restaurant, MealEntry, DayPlan
-  app_state.dart                # Single app-wide ChangeNotifier (no extra packages)
-  mock_data.dart                # Sample Tanauan City restaurants + meal-plan generator
-  widgets/common.dart           # Reusable chip, card, badge, menu-tile widgets
-  screens/
-    splash_screen.dart          # Figure 7
-    auth_screen.dart            # Figure 8
-    onboarding/
-      onboarding_flow.dart      # Step controller (progress bar + PageView)
-      step1_food_preferences.dart   # Figure 9
-      step2_taste_budget.dart       # Figure 10
-      step3_health_profile.dart     # Figure 11
-      step4_summary.dart            # Figure 12
-    home_shell.dart             # Bottom nav shell (Figure 13, item 4)
-    discovery_feed.dart         # Figure 13
-    restaurant_detail_screen.dart   # Figure 14
-    meal_plan_screen.dart       # Figure 15
-    saved_screen.dart           # Saved tab
-    profile_screen.dart         # Figure 16
+
+
+
+
+## Run from source
+
+Requirements: Flutter SDK, an Android device or emulator, and your own Firebase project.
+
+```bash
+git clone https://github.com/nickcomia/sarap_app.git
+cd sarap_app
+flutter pub get
+flutter run
 ```
 
-## Running it in VS Code
+You need to add your own Firebase configuration (`android/app/google-services.json`) and API keys. These are not included in the repository.
 
-1. **Install prerequisites** (skip any you already have):
-   - [Flutter SDK](https://docs.flutter.dev/get-started/install) — run `flutter doctor` afterward and fix anything it flags.
-   - VS Code extensions: **Flutter** and **Dart** (from the Extensions panel).
-   - A target device: an Android emulator, iOS simulator (Mac only), or just
-     run it in Chrome — no emulator needed for that.
+### Build a release APK
 
-2. **Open the project**
-   - Unzip this project, then in VS Code: `File → Open Folder…` → select the `sarap_app` folder.
+```bash
+flutter build apk --release --split-per-abi
+```
 
-3. **Get packages**
-   - Open a terminal in VS Code (`` Ctrl+` ``) and run:
-     ```
-     flutter pub get
-     ```
+Release signing uses `android/key.properties` and a keystore. Both are kept out of version control.
 
-4. **Run the app**
-   - Press `F5`, or use the terminal:
-     ```
-     flutter run
-     ```
-   - If no device is attached, `flutter run -d chrome` runs it straight in
-     a browser tab — the fastest way to see it working.
+### Build the admin dashboard (web)
 
-That's it — no API keys, no backend, no extra setup. Every screen is
-wired together with real navigation and shared state, so you can
-register → complete onboarding → get a generated meal plan → browse
-restaurants → save places → edit your profile, all in one flow.
+```bash
+flutter build web --release -t lib/main_admin.dart
+```
 
-## Where to plug in the real backend later
+The output in `build/web` is deployed to Vercel.
 
-- `lib/mock_data.dart` → replace `MockData.restaurants()` with your GIS/API
-  restaurant fetch, and `generateMealPlan()` with your real AI meal-plan
-  generation call.
-- `lib/screens/auth_screen.dart` → swap the local `_submit()` logic for
-  real Firebase/REST authentication.
-- `lib/app_state.dart` → this is the single place that holds app state;
-  point its methods at real services instead of the in-memory data without
-  touching any screen code.
+## Notes
+
+- The Facebook login option was removed; Google and email sign-in are supported.
+- This project is for academic purposes.
+
+## Author
+
+Nick Aeron Comia, Sto. Tomas City, Batangas
