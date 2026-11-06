@@ -61,6 +61,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "34145947868-keku0d9mk14pac9s06ku8dp7fdkm4ucc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ph.sarap_app",
+            "certificate_hash": "6e98251464694a71e8facb41e294a1ad27cdcde0"
+          }
+        },
+        {
           "client_id": "34145947868-uljp5tberrdoce0jl2d8995cqmot7tqc.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
