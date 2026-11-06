@@ -34,42 +34,24 @@ Requires Android 6.0 or newer.
 
 ## Project structure
 
-
-
-
-
-## Run from source
-
-Requirements: Flutter SDK, an Android device or emulator, and your own Firebase project.
-
-```bash
-git clone https://github.com/nickcomia/sarap_app.git
-cd sarap_app
-flutter pub get
-flutter run
-```
-
-You need to add your own Firebase configuration (`android/app/google-services.json`) and API keys. These are not included in the repository.
-
-### Build a release APK
-
-```bash
-flutter build apk --release --split-per-abi
-```
-
-Release signing uses `android/key.properties` and a keystore. Both are kept out of version control.
-
-### Build the admin dashboard (web)
-
-```bash
-flutter build web --release -t lib/main_admin.dart
-```
+    lib/
+      main.dart               # Mobile app entry point
+      main_admin.dart         # Admin dashboard entry point (web)
+      theme.dart              # Colors and ThemeData
+      models.dart             # Data models
+      app_state.dart          # App-wide state
+      services/               # Firebase and location services
+      screens/                # Mobile screens (splash, auth, onboarding, home, detail, plan, profile)
+      screens/admin/          # Admin dashboard screens
+      widgets/                # Reusable widgets
+    assets/
+      icons/                  # App icon
+      photos/                 # Bundled images
 
 The output in `build/web` is deployed to Vercel.
 
 ## Notes
 
-- The Facebook login option was removed; Google and email sign-in are supported.
 - This project is for academic purposes.
 
 ## Author
