@@ -3,7 +3,6 @@ import '../../services/admin_service.dart';
 import '../../services/firebase_service.dart';
 import '../../theme.dart';
 import 'admin_add_restaurant_screen.dart';
-import 'admin_content_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'admin_restaurants_screen.dart';
 import 'admin_users_screen.dart';
@@ -44,8 +43,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         () => const AdminDashboardScreen()),
     _NavItem('Users & moderation', Icons.people_outline, 'INSIGHTS',
         () => const AdminUsersScreen()),
-    _NavItem('Categories & promotions', Icons.category_outlined, 'CONTENT',
-        () => const AdminContentScreen()),
   ];
 
   void _openAddRestaurant() {
@@ -487,9 +484,6 @@ class _OverviewPageState extends State<_OverviewPage> {
                   action(Icons.people_outline, 'Users & moderation',
                       'Browse accounts, reports and feedback',
                       () => widget.onNavigate(4)),
-                  action(Icons.category_outlined, 'Categories & promotions',
-                      'Food categories, nutrition values and offers',
-                      () => widget.onNavigate(5)),
                 ],
               );
             }),

@@ -1,0 +1,28 @@
+{
+  "name": "sarap_app",
+  "version": "1.0.0",
+  "description": "SARAP is a Flutter mobile app that helps people in **Tanauan City, Batangas** find restaurants and plan meals that fit their health profile, food preferences, and budget. It was developed as a capstone project.",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nickcomia/sarap_app.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/nickcomia/sarap_app/issues"
+  },
+  "homepage": "https://github.com/nickcomia/sarap_app#readme",
+  "dependencies": {
+    "firebase-admin": "^14.5.0"
+  }
+}

@@ -768,6 +768,30 @@ class FirebaseService {
     await _db.collection(collection).doc(id).delete();
   }
 
+  /// Removes everything the app stores for one user: users/{uid} with its
+  /// saved + mealPlan subcollections, and profiles/{uid}.
+  /// This does NOT delete the login itself (Firebase Authentication);
+  /// that has to be done in the Firebase console.
+  static Future<void> adminDeleteUserData(String uid) async {
+    final userRef = _db.collection('users').doc(uid);
+
+    // Subcollections first: deleting a document does not delete them.
+    for (final sub in const ['saved', 'mealPlan']) {
+      final snap = await userRef.collection(sub).get();
+      if (snap.docs.isEmpty) continue;
+      final subBatch = _db.batch();
+      for (final d in snap.docs) {
+        subBatch.delete(d.reference);
+      }
+      await subBatch.commit();
+    }
+
+    final batch = _db.batch();
+    batch.delete(_db.collection('profiles').doc(uid));
+    batch.delete(userRef);
+    await batch.commit();
+  }
+
   /// '<restaurantId>/<itemId>' -> { proteinG, carbsG, fatG } for every menu item.
   static Future<Map<String, Map<String, dynamic>>> fetchNutritionExtras() async {
     final snap = await _db.collectionGroup('menuItems').get();
