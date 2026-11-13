@@ -38,24 +38,6 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
     );
   }
 
-  static const _tanauanCenter = LatLng(14.0863, 121.1497);
-
-  Set<Marker> _buildMarkers(List<Restaurant> restaurants) {
-    return restaurants.map((r) {
-      return Marker(
-        markerId: MarkerId(r.id),
-        position: LatLng(r.latitude, r.longitude),
-        infoWindow: InfoWindow(
-          title: r.name,
-          snippet: '${r.matchPercent}% match • ${r.distanceKm.toStringAsFixed(1)} km',
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => RestaurantDetailScreen(restaurant: r)),
-          ),
-        ),
-      );
-    }).toSet();
-  }
-
   @override
   Widget build(BuildContext context) {
     final state = AppState.instance;
@@ -67,9 +49,6 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
           r.type.toLowerCase().contains(q);
     }).toList();
 
-    final cameraTarget = (state.userLat != null && state.userLng != null)
-        ? LatLng(state.userLat!, state.userLng!)
-        : _tanauanCenter;
     final colors = context.colors;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -157,66 +136,55 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
                 ),
                 const SizedBox(height: 18),
 
-                // A real, live Google Map preview — tap to expand full screen.
-                Container(
-                  decoration: BoxDecoration(
+                // Lightweight map shortcut. The real Google Map is only
+                // created when the user taps it. A live map on the feed made
+                // the page slow to appear (it creates a native view and
+                // downloads tiles) and was rebuilt on every keystroke.
+                Material(
+                  color: colors.card,
+                  borderRadius: BorderRadius.circular(20),
+                  child: InkWell(
+                    onTap: _openFullMap,
                     borderRadius: BorderRadius.circular(20),
-                    boxShadow: isDark ? null : AppShadows.card,
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: SizedBox(
-                      height: 130,
-                      child: Stack(
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: colors.border),
+                        boxShadow: isDark ? null : AppShadows.soft,
+                      ),
+                      child: Row(
                         children: [
-                          AbsorbPointer(
-                            child: GoogleMap(
-                              initialCameraPosition: CameraPosition(target: cameraTarget, zoom: 14),
-                              markers: _buildMarkers(results),
-                              myLocationEnabled: state.userLat != null,
-                              myLocationButtonEnabled: false,
-                              zoomControlsEnabled: false,
-                              liteModeEnabled: true,
+                          Container(
+                            width: 46,
+                            height: 46,
+                            decoration: BoxDecoration(
+                              gradient: AppGradients.primary,
+                              borderRadius: BorderRadius.circular(14),
                             ),
+                            child: const Icon(Icons.map_outlined, color: Colors.white),
                           ),
-                          Positioned.fill(
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(onTap: _openFullMap),
-                            ),
-                          ),
-                          Positioned(
-                            right: 10,
-                            bottom: 10,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: colors.card,
-                                borderRadius: BorderRadius.circular(20),
-                                boxShadow: isDark ? null : AppShadows.soft,
-                              ),
-                              child: Text('Tap to expand map',
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      color: colors.navy)),
-                            ),
-                          ),
-                          if (state.locationDenied)
-                            Positioned(
-                              left: 10,
-                              top: 10,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                decoration: BoxDecoration(
-                                  color: colors.card,
-                                  borderRadius: BorderRadius.circular(20),
-                                  boxShadow: isDark ? null : AppShadows.soft,
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Nearby food spots',
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 14.5,
+                                        color: colors.navy)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  state.locationDenied
+                                      ? 'Location off — showing est. distances'
+                                      : '${results.length} places · tap to open the map',
+                                  style: TextStyle(fontSize: 12, color: colors.muted),
                                 ),
-                                child: Text('Location off — showing est. distances',
-                                    style: TextStyle(fontSize: 10.5, color: colors.muted)),
-                              ),
+                              ],
                             ),
+                          ),
+                          Icon(Icons.chevron_right, color: colors.muted),
                         ],
                       ),
                     ),

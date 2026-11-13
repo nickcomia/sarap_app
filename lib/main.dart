@@ -13,47 +13,77 @@ import 'services/notification_service.dart';
 import 'services/firebase_service.dart';
 import 'app_state.dart';
 
+/// Waits for [work] for at most [limit]. If it is slower (slow or no
+/// internet) or fails, start-up simply carries on; the work keeps running
+/// in the background and the screens update when it finishes.
+Future<void> _bestEffort(Future<dynamic> work, Duration limit) async {
+  try {
+    await work.timeout(limit);
+  } catch (_) {}
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Local set-up only: does not wait for the internet.
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // These two do not depend on each other, so run them at the same time.
   // App Check proves to Firebase AI Logic that requests come from the real
   // app. The debug provider is for development builds only; switch to
   // AndroidProvider.playIntegrity before releasing. Skipped on web, which
   // needs a separate reCAPTCHA setup.
-  await Future.wait(<Future<dynamic>>[
-    if (!kIsWeb)
-      FirebaseAppCheck.instance.activate(androidProvider: AndroidProvider.debug),
-    NotificationService.initialize(),
-  ]);
+  // Run together, and never wait more than 2 seconds for them.
+  await _bestEffort(
+    Future.wait(<Future<dynamic>>[
+      if (!kIsWeb)
+        FirebaseAppCheck.instance.activate(androidProvider: AndroidProvider.debug),
+      NotificationService.initialize(),
+    ]),
+    const Duration(seconds: 2),
+  );
 
   var onboardingDone = true;
   var emailVerified = true;
 
   if (FirebaseService.currentUid != null) {
-    // Only ask the server again when the saved state says "not verified"
-    // (the user may have just tapped the link). Verified users skip this.
+    // Firebase keeps the user signed in on the device, so this needs no
+    // internet. Only an account that looks unverified is re-checked online
+    // (the user may have just tapped the link), and only for a few seconds.
     emailVerified = FirebaseService.isEmailVerified;
     if (!emailVerified) {
-      try {
-        await FirebaseAuth.instance.currentUser?.reload();
-      } catch (_) {}
+      await _bestEffort(
+        FirebaseAuth.instance.currentUser?.reload() ?? Future<void>.value(),
+        const Duration(seconds: 3),
+      );
       emailVerified = FirebaseService.isEmailVerified;
     }
 
     if (emailVerified) {
-      // Load the user's data and check onboarding at the same time.
-      // loadCurrentUserIfLoggedIn() only waits for quick cache-first reads;
-      // the slow work continues in the background after the first screen.
-      final results = await Future.wait<dynamic>([
+      // Whether onboarding is finished was saved on this device last time,
+      // so the first screen can be chosen instantly, even offline.
+      final saved = await FirebaseService.cachedOnboardingComplete();
+      if (saved != null) {
+        onboardingDone = saved;
+        // Re-check quietly; the answer is stored for the next start.
+        FirebaseService.isOnboardingComplete().catchError((_) => true);
+      } else {
+        // Nothing saved yet (first start after an update): ask the server,
+        // but give up after 3 seconds and let the user in (TC-034 resume
+        // still works once the answer is known).
+        try {
+          onboardingDone =
+              await FirebaseService.isOnboardingComplete().timeout(const Duration(seconds: 3));
+        } catch (_) {
+          onboardingDone = true;
+        }
+      }
+
+      // Re-download the saved profile, restaurants, saved places and meal
+      // plan (cache-first). Wait at most 1.5 seconds; whatever is not ready
+      // by then keeps loading and the screens update by themselves.
+      await _bestEffort(
         AppState.instance.loadCurrentUserIfLoggedIn(),
-        // A logged-in user who closed the app mid-onboarding must resume
-        // it rather than land on Home (TC-034). If the check fails
-        // (e.g. offline), let them in rather than lock them out.
-        FirebaseService.isOnboardingComplete().catchError((_) => true),
-      ]);
-      onboardingDone = results[1] as bool;
+        const Duration(milliseconds: 1500),
+      );
     }
   } else {
     AppState.instance.loadRestaurantsFromServer();

@@ -4,6 +4,7 @@ import 'cache_first.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models.dart';
 import '../mock_data.dart';
 
@@ -54,6 +55,7 @@ class FirebaseService {
       });
       // Default profile row the app fills in as onboarding progresses.
       await _db.collection('profiles').doc(uid).set(_defaultProfileMap());
+      _cacheOnboarding(uid, false);
 
       return {'userId': uid, 'name': name, 'email': email};
     } on fb_auth.FirebaseAuthException catch (e) {
@@ -276,8 +278,31 @@ class FirebaseService {
     final uid = currentUid;
     if (uid == null) return false;
     final doc = await _db.collection('profiles').doc(uid).get();
-    if (!doc.exists) return false; // brand-new account
-    return doc.data()?['onboardingCompleted'] != false;
+    // A missing doc means a brand-new account.
+    final done = doc.exists && doc.data()?['onboardingCompleted'] != false;
+    _cacheOnboarding(uid, done);
+    return done;
+  }
+
+  /// The onboarding answer saved on THIS device the last time it was known,
+  /// or null if never saved. Instant and works without internet, so the app
+  /// can pick its first screen without waiting for the network.
+  static Future<bool?> cachedOnboardingComplete() async {
+    final uid = currentUid;
+    if (uid == null) return null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool('onboarding_done_$uid');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _cacheOnboarding(String uid, bool done) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('onboarding_done_$uid', done);
+    } catch (_) {}
   }
 
   /// Call when the user finishes the last onboarding step.
@@ -288,6 +313,7 @@ class FirebaseService {
         .collection('profiles')
         .doc(uid)
         .set({'onboardingCompleted': true}, SetOptions(merge: true));
+    _cacheOnboarding(uid, true);
   }
 
   static Map<String, dynamic> _defaultProfileMap() => {

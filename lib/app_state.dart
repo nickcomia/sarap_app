@@ -350,11 +350,13 @@ class AppState extends ChangeNotifier {
         loadMealPlanFromServer(),
       ]);
 
-      final changedEmail = await emailSync;
-      if (changedEmail != null) {
-        profile.email = changedEmail;
-        notifyListeners();
-      }
+      // Not awaited: this needs the internet and must never hold up start-up.
+      emailSync.then((changedEmail) {
+        if (changedEmail != null) {
+          profile.email = changedEmail;
+          notifyListeners();
+        }
+      });
 
       // Not awaited: building a plan fetches every menu, so it must not
       // hold up the first screen.
