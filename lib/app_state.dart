@@ -52,13 +52,23 @@ class AppState extends ChangeNotifier {
   List<AiPick> aiPicks = [];
   bool loadingAiPicks = false;
 
-  static const _aiCacheKey = 'ai_picks_cache_v1';
+  // v2: the cache now remembers which shortlist the picks were built from.
+  static const _aiCacheKey = 'ai_picks_cache_v2';
   static const _aiCacheMaxAge = Duration(hours: 2);
 
+  /// Identifies the shortlist the AI sees. If the ranking has not changed,
+  /// the cached picks are still valid and no new Gemini request is needed.
+  String _shortlistKey() =>
+      sortedByMatch.take(8).map((r) => r.id).join(',');
+
   /// Checks a local cache first (instant, no network/LLM call) before
-  /// falling back to a real Gemini request. Pass forceRefresh: true after
-  /// preferences change, since a stale cache would show outdated reasoning.
+  /// falling back to a real Gemini request. The cache only counts when the
+  /// shortlist is unchanged. Pass forceRefresh: true after preferences
+  /// change, since a stale cache would show outdated reasoning.
   Future<void> loadAiRecommendations({bool forceRefresh = false}) async {
+    // Ignore duplicate calls while one is already running.
+    if (loadingAiPicks && !forceRefresh) return;
+
     if (!forceRefresh) {
       final cached = await _loadCachedAiPicks();
       if (cached != null) {
@@ -68,6 +78,7 @@ class AppState extends ChangeNotifier {
       }
     }
 
+    final key = _shortlistKey();
     loadingAiPicks = true;
     notifyListeners();
     aiPicks = await AiRecommendationService.getRecommendations(
@@ -78,11 +89,22 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     if (aiPicks.isNotEmpty) {
-      await _saveAiPicksToCache(aiPicks);
+      await _saveAiPicksToCache(aiPicks, key);
     }
   }
 
-  Future<List<AiPick>?> _loadCachedAiPicks() async {
+  /// Shows the last saved picks straight away on app start (no network),
+  /// even before the final ranking is known. They are re-checked later.
+  Future<void> _showCachedAiPicksQuickly() async {
+    final cached = await _loadCachedAiPicks(requireSameShortlist: false);
+    if (cached != null && aiPicks.isEmpty) {
+      aiPicks = cached;
+      notifyListeners();
+    }
+  }
+
+  Future<List<AiPick>?> _loadCachedAiPicks(
+      {bool requireSameShortlist = true}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_aiCacheKey);
@@ -91,6 +113,9 @@ class AppState extends ChangeNotifier {
       final cachedAt = DateTime.tryParse(decoded['cachedAt'] ?? '');
       if (cachedAt == null) return null;
       if (DateTime.now().difference(cachedAt) > _aiCacheMaxAge) return null;
+      if (requireSameShortlist && decoded['key'] != _shortlistKey()) {
+        return null;
+      }
       return (decoded['picks'] as List)
           .map((e) => AiPick.fromJson(e as Map<String, dynamic>))
           .toList();
@@ -99,11 +124,12 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> _saveAiPicksToCache(List<AiPick> picks) async {
+  Future<void> _saveAiPicksToCache(List<AiPick> picks, String key) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final data = {
         'cachedAt': DateTime.now().toIso8601String(),
+        'key': key,
         'picks': picks.map((p) => p.toJson()).toList(),
       };
       await prefs.setString(_aiCacheKey, jsonEncode(data));
@@ -185,7 +211,8 @@ class AppState extends ChangeNotifier {
     missingHealthFields = ['age', 'height', 'weight'];
     _healthProfileLoaded = false;
     notifyListeners();
-    await NotificationService.registerTokenForCurrentUser();
+    // Not awaited: registering the push token must not delay the screen.
+    NotificationService.registerTokenForCurrentUser().catchError((_) {});
   }
 
   Future<void> login({required String email, required String password}) async {
@@ -196,16 +223,16 @@ class AppState extends ChangeNotifier {
     profile.name = result['name'];
     profile.email = result['email'];
     notifyListeners();
-    await NotificationService.registerTokenForCurrentUser();
+    // Not awaited: registering the push token must not delay sign-in.
+    NotificationService.registerTokenForCurrentUser().catchError((_) {});
 
-    // Load this account's own saved health/preference profile, so the
-    // calorie target shown belongs to the signed-in account and not to the
-    // placeholder defaults.
-    await loadProfileFromServer();
-
-    // Pull down whatever this account already has saved.
-    await loadSavedFromServer();
-    await loadMealPlanFromServer();
+    // Load this account's own profile, saved places and meal plan at the
+    // same time (they don't depend on each other).
+    await Future.wait([
+      loadProfileFromServer(),
+      loadSavedFromServer(),
+      loadMealPlanFromServer(),
+    ]);
   }
 
   /// Downloads users/{uid} and profiles/{uid} into [profile]. Also records
@@ -214,13 +241,19 @@ class AppState extends ChangeNotifier {
   Future<void> loadProfileFromServer() async {
     if (!isLoggedIn) return;
     try {
-      final userData = await FirebaseService.fetchUserDoc();
+      // The two documents are independent, so read them together.
+      final docs = await Future.wait([
+        FirebaseService.fetchUserDoc(),
+        FirebaseService.fetchProfileDoc(),
+      ]);
+      final userData = docs[0];
+      final profileData = docs[1];
+
       if (userData != null) {
         profile.name = userData['name'] ?? profile.name;
         profile.email = userData['email'] ?? profile.email;
       }
 
-      final profileData = await FirebaseService.fetchProfileDoc();
       if (profileData != null) {
         profile.establishmentTypes =
             Set<String>.from(profileData['establishmentTypes'] ?? []);
@@ -289,28 +322,43 @@ class AppState extends ChangeNotifier {
   /// unless this runs. Without it, a returning logged-in user sees the
   /// demo/placeholder data instead of their own, every time they reopen
   /// the app.
+  ///
+  /// Only quick, cache-first reads are awaited here, all at the same time.
+  /// The slow work (server refresh, menu calories, meal plan generation,
+  /// AI picks) runs in the background so the first screen appears fast.
   Future<void> loadCurrentUserIfLoggedIn() async {
     if (!isLoggedIn) return;
     if (!FirebaseService.isEmailVerified) {
-      // Shouldn't normally happen (login() already blocks unverified
-      // accounts), but guards against an edge case — e.g. the user
-      // registered, closed the app before verifying, and reopened it.
+      // Shouldn't normally happen (the app shows the Verify screen first),
+      // but guards against an edge case.
       await logoutFromServer();
       return;
     }
     try {
       // If the user opened an email-change verification link, copy the
-      // new address from Firebase Auth into their Firestore user doc
-      // before the profile is loaded below.
-      await FirebaseService.syncEmailFromAuth();
+      // new address from Firebase Auth into their Firestore user doc.
+      // Started now, awaited after the profile has loaded.
+      final emailSync = FirebaseService.syncEmailFromAuth();
 
-      await loadProfileFromServer();
+      // Last saved AI picks appear immediately (no network).
+      _showCachedAiPicksQuickly();
 
-      await loadRestaurantsFromServer();
-      await loadSavedFromServer();
-      await loadMealPlanFromServer();
-      if (!hasAnyMeal) await generateMealPlan();
-      loadAiRecommendations();
+      await Future.wait([
+        loadProfileFromServer(),
+        loadRestaurantsFromServer(),
+        loadSavedFromServer(),
+        loadMealPlanFromServer(),
+      ]);
+
+      final changedEmail = await emailSync;
+      if (changedEmail != null) {
+        profile.email = changedEmail;
+        notifyListeners();
+      }
+
+      // Not awaited: building a plan fetches every menu, so it must not
+      // hold up the first screen.
+      if (!hasAnyMeal) generateMealPlan();
     } catch (_) {
       // Offline or Firebase unreachable — keep whatever local state exists
       // rather than blocking app startup.
@@ -353,6 +401,8 @@ class AppState extends ChangeNotifier {
   // Restaurants
   // ------------------------------------------------------------------
 
+  bool _refreshingRestaurants = false;
+
   /// Tries to load restaurants from Firestore; falls back to the
   /// bundled sample data if that fails or the collection is empty
   /// (e.g. you haven't run the seed script yet).
@@ -373,6 +423,9 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _refreshRestaurantsInBackground() async {
+    // Skip if a refresh is already running (this used to pile up).
+    if (_refreshingRestaurants) return;
+    _refreshingRestaurants = true;
     try {
       final fresh = await FirebaseService.fetchRestaurants(forceServer: true);
       if (fresh.isNotEmpty) {
@@ -386,6 +439,7 @@ class AppState extends ChangeNotifier {
 
     // The menus' calories feed the health-goal part of the match score.
     await _refreshMenuCalories();
+    _refreshingRestaurants = false;
   }
 
   /// Loads every restaurant's menu once and keeps the calories of its
@@ -395,7 +449,7 @@ class AppState extends ChangeNotifier {
   /// fails, restaurants simply keep their score without the health part.
   Future<void> _refreshMenuCalories() async {
     try {
-      final items = await FirebaseService.fetchAllMenuItems();
+      final items = await _allMenuItems();
       final byRestaurant = <String, List<int>>{};
       for (final item in items) {
         if (!MatchingEngine.isUsable(item)) continue;
@@ -407,10 +461,9 @@ class AppState extends ChangeNotifier {
       MatchingEngine.recomputeAll(profile, restaurants);
       notifyListeners();
 
-      // The ranking has just changed (health fit now known), so any AI
-      // picks built from the earlier ranking are stale. Rebuild them.
-      await _clearAiPicksCache();
-      loadAiRecommendations(forceRefresh: true);
+      // The ranking is final now. This reuses the saved picks when the
+      // shortlist is unchanged, and only asks Gemini when it really changed.
+      loadAiRecommendations();
     } catch (e) {
       debugPrint('MENU CALORIES ERROR: $e');
     }
@@ -480,18 +533,57 @@ class AppState extends ChangeNotifier {
   /// endless spinner.
   static const _networkTimeout = Duration(seconds: 15);
 
+  // --- Short-lived menu cache ---------------------------------------------
+  // Swapping, replacing and generating used to download every restaurant and
+  // every menu item EVERY time. The data is now reused for a couple of
+  // minutes. Confirming a swap (chooseOption) still re-checks fresh data.
+  static const _menuCacheTtl = Duration(minutes: 2);
+
+  List<MenuItem>? _menuItemsCache;
+  DateTime? _menuItemsAt;
+  _EligibleMenu? _eligibleCache;
+  DateTime? _eligibleAt;
+
+  bool _isFresh(DateTime? at) =>
+      at != null && DateTime.now().difference(at) < _menuCacheTtl;
+
+  /// Every available menu item, downloaded at most once per cache window.
+  Future<List<MenuItem>> _allMenuItems({bool fresh = false}) async {
+    if (!fresh && _menuItemsCache != null && _isFresh(_menuItemsAt)) {
+      return _menuItemsCache!;
+    }
+    final items = await FirebaseService.fetchAllMenuItems();
+    _menuItemsCache = items;
+    _menuItemsAt = DateTime.now();
+    return items;
+  }
+
+  void _clearMenuCache() {
+    _menuItemsCache = null;
+    _menuItemsAt = null;
+    _eligibleCache = null;
+    _eligibleAt = null;
+  }
+
   /// Fresh from Firestore: only restaurants that are visible AND local,
   /// and only their menu items that are available AND have a usable price
   /// and calorie value. Returns null if the data could not be loaded.
-  Future<_EligibleMenu?> _loadEligibleMenu() async {
+  /// Reuses a copy from the last couple of minutes unless [fresh] is true.
+  Future<_EligibleMenu?> _loadEligibleMenu({bool fresh = false}) async {
+    if (!fresh && _eligibleCache != null && _isFresh(_eligibleAt)) {
+      return _eligibleCache;
+    }
     try {
-      return await _fetchEligibleMenu().timeout(_networkTimeout);
+      final menu = await _fetchEligibleMenu(fresh: fresh).timeout(_networkTimeout);
+      _eligibleCache = menu;
+      _eligibleAt = DateTime.now();
+      return menu;
     } catch (_) {
       return null;
     }
   }
 
-  Future<_EligibleMenu> _fetchEligibleMenu() async {
+  Future<_EligibleMenu> _fetchEligibleMenu({bool fresh = false}) async {
     // Prefer the server copy so a restaurant the admin just hid can't slip
     // through from a stale cache; fall back to the cache offline.
     List<Restaurant> fetched;
@@ -504,7 +596,7 @@ class AppState extends ChangeNotifier {
     final localIds = {for (final r in local) r.id};
 
     // fetchAllMenuItems already drops items marked unavailable.
-    final items = await FirebaseService.fetchAllMenuItems();
+    final items = await _allMenuItems(fresh: fresh);
     final localItems =
         items.where((i) => localIds.contains(i.restaurantId)).toList();
     final usable = localItems.where(MatchingEngine.isUsable).toList();
@@ -794,9 +886,11 @@ class AppState extends ChangeNotifier {
   ///  - Filled slot  -> swap: other eligible dishes within the calorie range.
   ///  - Empty slot   -> only dishes that fit the day's remaining calories
   ///                    (a dish equal to the allowance is accepted).
-  /// Always uses fresh menu data: local, visible, available, budget- and
-  /// diet-compliant, with a valid price and calorie value.
-  Future<OptionResult> loadOptions(int dayIndex, MealSlot slot) async {
+  /// Uses menu data from the last couple of minutes (instant) unless
+  /// [fresh] is true: local, visible, available, budget- and diet-compliant,
+  /// with a valid price and calorie value.
+  Future<OptionResult> loadOptions(int dayIndex, MealSlot slot,
+      {bool fresh = false}) async {
     if (!hasRequiredHealthData) {
       return OptionResult(const [],
           'Complete your health profile first so SARAP can calculate your '
@@ -808,7 +902,7 @@ class AppState extends ChangeNotifier {
           failed: true);
     }
 
-    final menu = await _loadEligibleMenu();
+    final menu = await _loadEligibleMenu(fresh: fresh);
     if (menu == null) {
       return OptionResult(const [],
           'Could not load menus. Check your connection and try again.',
@@ -874,13 +968,13 @@ class AppState extends ChangeNotifier {
         isSwap: isSwap, allowance: allowance);
   }
 
-  /// Commits the user's pick. The options are re-checked against fresh data
+  /// Commits the user's pick. The options are re-checked against FRESH data
   /// first, so a dish that was hidden or changed while the picker was open
   /// is rejected and the original meal stays untouched.
   /// Returns null on success, otherwise a message to show.
   Future<String?> chooseOption(
       int dayIndex, MealSlot slot, MealOption option) async {
-    final fresh = await loadOptions(dayIndex, slot);
+    final fresh = await loadOptions(dayIndex, slot, fresh: true);
     if (fresh.failed) return fresh.message;
 
     final match = fresh.options.where((o) => o.item.id == option.item.id);
@@ -947,6 +1041,7 @@ class AppState extends ChangeNotifier {
     _healthProfileLoaded = false;
     aiPicks = [];
     homeTabIndex = 0;
+    _clearMenuCache();
     for (final r in restaurants) {
       r.isSaved = false;
     }

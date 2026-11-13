@@ -30,6 +30,7 @@ class FirebaseService {
   static final _storage = FirebaseStorage.instance;
 
   static String? get currentUid => _auth.currentUser?.uid;
+  static String? get currentEmail => _auth.currentUser?.email;
 
   // ------------------------------------------------------------------
   // Auth
@@ -67,11 +68,13 @@ class FirebaseService {
     try {
       final cred = await _auth.signInWithEmailAndPassword(email: email, password: password);
 
-      if (!cred.user!.emailVerified) {
-        await cred.user!.sendEmailVerification();
-        await _auth.signOut();
+      // Do NOT resend the email or sign out here: the app shows the Verify
+      // screen, which has its own resend button with a cool-down. Sending a
+      // new email on every login attempt is what triggers Firebase's
+      // "blocked all requests from this device" error.
+      if (!isEmailVerified) {
         throw ApiException(
-          'Please verify your email first — we just sent you a new link.',
+          'Please verify your email first. Check your inbox and spam folder.',
         );
       }
 
@@ -136,7 +139,20 @@ class FirebaseService {
   static Future<void> resendVerificationEmail() async {
     final user = _auth.currentUser;
     if (user == null || user.emailVerified) return;
-    await user.sendEmailVerification();
+    try {
+      await user.sendEmailVerification();
+    } on fb_auth.FirebaseAuthException catch (e) {
+      throw ApiException(_friendlyAuthError(e));
+    }
+  }
+
+  /// Refreshes the account from the server and says whether the email is
+  /// verified now. Used by the Verify screen.
+  static Future<bool> checkEmailVerified() async {
+    final user = _auth.currentUser;
+    if (user == null) return false;
+    await user.reload();
+    return _auth.currentUser?.emailVerified ?? false;
   }
 
   /// Sends Firebase's built-in password reset email. Throws [ApiException]
@@ -299,6 +315,25 @@ class FirebaseService {
     bool forceServer = false, // kept so existing callers still compile
     bool includeUnavailable = false,
   }) async {
+    // Cache-first unless the caller asks for the server copy: the first
+    // paint is instant, and AppState refreshes from the server afterwards.
+    // (forceServer used to be ignored, so every call waited on the network.)
+    if (!forceServer) {
+      try {
+        final cached = await _db
+            .collection('restaurants')
+            .get(const GetOptions(source: Source.cache));
+        if (cached.docs.isNotEmpty) {
+          return cached.docs
+              .where((d) => includeUnavailable || d.data()['available'] != false)
+              .map(_restaurantFromDoc)
+              .toList();
+        }
+      } catch (_) {
+        // Nothing cached yet (first launch): fall through to the server.
+      }
+    }
+
     final snap = await _db.collection('restaurants').get();
 
     if (snap.docs.isEmpty) {
@@ -963,6 +998,8 @@ class FirebaseService {
         return 'Invalid email or password';
       case 'network-request-failed':
         return 'Could not reach Firebase — check your internet connection';
+      case 'too-many-requests':
+        return 'Too many attempts from this device. Please wait a while and try again.';
       default:
         return e.message ?? 'Authentication failed';
     }

@@ -6,6 +6,7 @@ import '../app_state.dart';
 import '../services/firebase_service.dart';
 import 'onboarding/onboarding_flow.dart';
 import 'home_shell.dart';
+import 'verify_email_screen.dart';
 
 /// Figure 8: Sign In / Register Screen.
 /// Tabs switch between the login view and account-creation view; includes
@@ -28,7 +29,6 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _obscure = true;
   bool _obscureConfirm = true;
   bool _loading = false;
-  bool _showResendVerification = false;
   final _formKey = GlobalKey<FormState>();
 
   static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
@@ -75,28 +75,29 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     final state = AppState.instance;
-    setState(() {
-      _loading = true;
-      _showResendVerification = false;
-    });
+    final email = _emailController.text.trim().toLowerCase();
+    setState(() => _loading = true);
 
     try {
       if (isRegister) {
         await state.register(
           name: _nameController.text.trim(),
-          email: _emailController.text.trim().toLowerCase(),
+          email: email,
           password: _passwordController.text,
         );
         if (!mounted) return;
-        // New users proceed through the 4-step onboarding flow. The auth
-        // screen is removed so Back can't return to it (TC-033).
+        // The account exists, but the email must be verified BEFORE the
+        // preference set-up. The auth screen is removed so Back can't
+        // return to it (TC-033).
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const OnboardingFlow()),
+          MaterialPageRoute(
+            builder: (_) => VerifyEmailScreen(email: email, isNewAccount: true),
+          ),
           (route) => false,
         );
       } else {
         await state.login(
-          email: _emailController.text.trim().toLowerCase(),
+          email: email,
           password: _passwordController.text,
         );
         if (!mounted) return;
@@ -124,9 +125,19 @@ class _AuthScreenState extends State<AuthScreen> {
       }
     } on ApiException catch (e) {
       if (!mounted) return;
-      setState(() {
-        _showResendVerification = e.message.contains('verify your email');
-      });
+      // Signed in but not verified yet: show the verify screen instead of
+      // sending yet another email from here.
+      if (e.message.contains('verify your email') &&
+          FirebaseService.currentUid != null) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (_) => VerifyEmailScreen(
+                email: FirebaseService.currentEmail ?? email),
+          ),
+          (route) => false,
+        );
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {
       if (!mounted) return;
@@ -404,21 +415,6 @@ class _AuthScreenState extends State<AuthScreen> {
                         )
                       : Text(isRegister ? 'Create account' : 'Sign in'),
                 ),
-                if (_showResendVerification) ...[
-                  const SizedBox(height: 10),
-                  Center(
-                    child: TextButton(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('A new verification email has already been sent — check your inbox.'),
-                          ),
-                        );
-                      },
-                      child: const Text('Didn\'t get it? We just resent it'),
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 16),
                 const Row(
                   children: [
