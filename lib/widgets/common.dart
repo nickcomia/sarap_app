@@ -9,12 +9,22 @@ import '../services/matching_engine.dart';
 /// (e.g. "assets/photos/adobo.jpg") or a network URL, auto-detected,
 /// with a graceful fallback if the image is missing or fails to load.
 /// Network photos are cached on disk after the first download.
+///
+/// Photos are pasted by the admin as links to full-size files (for example
+/// on raw.githubusercontent.com). Downloading those as they are can mean
+/// several MB per restaurant card, which is very slow on a weak connection.
+/// With [useImageResizer] on, the free wsrv.nl image service sends back a
+/// small WebP copy (usually 20-60 KB) cut to the size the card needs. If
+/// that service cannot be reached, the original link is used instead.
+/// Set [useImageResizer] to false to always use the original link.
 class SmartImage extends StatelessWidget {
   final String? source;
   final double? width;
   final double? height;
   final BoxFit fit;
   final Widget fallback;
+
+  static const bool useImageResizer = true;
 
   const SmartImage({
     super.key,
@@ -25,25 +35,55 @@ class SmartImage extends StatelessWidget {
     this.fit = BoxFit.cover,
   });
 
+  static bool _resizable(String url) {
+    final u = url.toLowerCase();
+    return !u.contains('wsrv.nl') && !u.endsWith('.svg') && !u.endsWith('.gif');
+  }
+
+  /// The address of a small copy of [url], about 3x the displayed size so it
+  /// still looks sharp on high-resolution screens.
+  String _resizedUrl(String url) {
+    final w = (width != null && width!.isFinite) ? (width! * 3).round() : 1080;
+    final params = <String, String>{
+      'url': url,
+      'w': '$w',
+      'output': 'webp',
+      'q': '80',
+      'we': '1', // never enlarge a picture that is already small
+    };
+    if (height != null && height!.isFinite) {
+      params['h'] = (height! * 3).round().toString();
+      params['fit'] = fit == BoxFit.cover ? 'cover' : 'inside';
+    }
+    return Uri.https('wsrv.nl', '/', params).toString();
+  }
+
+  Widget _network(String url, {Widget Function()? onError}) {
+    return CachedNetworkImage(
+      imageUrl: url,
+      width: width,
+      height: height,
+      fit: fit,
+      memCacheWidth:
+          (width != null && width!.isFinite) ? (width! * 3).round() : null,
+      fadeInDuration: const Duration(milliseconds: 150),
+      placeholder: (_, __) => fallback,
+      errorWidget: (_, failedUrl, error) {
+        debugPrint('IMAGE FAIL: $failedUrl -> $error');
+        return onError != null ? onError() : fallback;
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (source == null || source!.isEmpty) return fallback;
 
     final isNetwork = source!.startsWith('http://') || source!.startsWith('https://');
     if (isNetwork) {
-      return CachedNetworkImage(
-        imageUrl: source!,
-        width: width,
-        height: height,
-        fit: fit,
-        memCacheWidth: width == null ? null : (width! * 3).round(),
-        fadeInDuration: const Duration(milliseconds: 150),
-        placeholder: (_, __) => fallback,
-   errorWidget: (_, url, error) {
-     debugPrint('IMAGE FAIL: $url -> $error');
-     return fallback;
-   },
-      );
+      if (!useImageResizer || !_resizable(source!)) return _network(source!);
+      // Small copy first; if that fails, fall back to the original link.
+      return _network(_resizedUrl(source!), onError: () => _network(source!));
     }
     return Image.asset(
       source!,

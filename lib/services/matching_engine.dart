@@ -401,6 +401,19 @@ class MatchingEngine {
     MealSlot.dinner: 0.30,
   };
 
+  /// The (up to) three best-scoring dishes, best first. Each dish is scored
+  /// exactly once. (The old code re-scored dishes inside the sort, which
+  /// made building a plan slow when a menu has many items.)
+  static List<MenuItem> _topThree(
+      UserProfile profile, List<MenuItem> candidates, int calTarget) {
+    final scored = [
+      for (final i in candidates)
+        MapEntry(i, scoreMenuItem(profile, i, calTarget)),
+    ];
+    scored.sort((a, b) => b.value.compareTo(a.value));
+    return scored.take(3).map((e) => e.key).toList();
+  }
+
   /// Picks one dish for [slot] — randomly among the top 3 highest-scoring
   /// eligible items tagged for that slot. Returns null when nothing
   /// qualifies, so the caller can leave the slot empty instead of
@@ -430,9 +443,7 @@ class MatchingEngine {
     }
     if (candidates.isEmpty) return null;
 
-    candidates.sort((a, b) => scoreMenuItem(profile, b, calTarget)
-        .compareTo(scoreMenuItem(profile, a, calTarget)));
-    final topPicks = candidates.take(3).toList();
+    final topPicks = _topThree(profile, candidates, calTarget);
     final chosen = topPicks[rand.nextInt(topPicks.length)];
 
     return MealEntry(
@@ -447,6 +458,10 @@ class MatchingEngine {
   /// break the user's dietary restrictions or budget are filtered out
   /// first (see [_fitsProfile]). Slots with no qualifying dish are left
   /// empty so the user can log manually.
+  ///
+  /// The eligible dishes and their top 3 are worked out ONCE per meal slot,
+  /// then each day just picks one of them at random (the same behaviour as
+  /// before, but 7 times less work).
   static List<DayPlan> buildMealPlan(
     UserProfile profile,
     List<MenuItem> allItems,
@@ -454,12 +469,27 @@ class MatchingEngine {
   ) {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final rand = Random();
+    final target = profile.dailyCalorieTarget.clamp(1200, 4000);
+
+    final fitting = allItems.where((i) => _fitsProfile(profile, i)).toList();
+    final topBySlot = <MealSlot, List<MenuItem>>{};
+    for (final slot in MealSlot.values) {
+      final calTarget = (target * _slotCalorieFraction[slot]!).round();
+      final candidates = fitting.where((i) => _tagsSlot(i, slot)).toList();
+      topBySlot[slot] = _topThree(profile, candidates, calTarget);
+    }
 
     return days.map((day) {
       final meals = MealSlot.values.map((slot) {
-        return pickForSlot(profile, allItems, restaurantNamesById, slot,
-                random: rand) ??
-            MealEntry(slot: slot);
+        final top = topBySlot[slot]!;
+        if (top.isEmpty) return MealEntry(slot: slot);
+        final chosen = top[rand.nextInt(top.length)];
+        return MealEntry(
+          slot: slot,
+          dishName: chosen.name,
+          restaurantName: restaurantNamesById[chosen.restaurantId] ?? 'Unknown',
+          calories: chosen.calories,
+        );
       }).toList();
       return DayPlan(dayLabel: day, meals: meals);
     }).toList();

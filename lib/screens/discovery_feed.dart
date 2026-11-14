@@ -136,58 +136,17 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
                 ),
                 const SizedBox(height: 18),
 
-                // Lightweight map shortcut. The real Google Map is only
-                // created when the user taps it. A live map on the feed made
-                // the page slow to appear (it creates a native view and
-                // downloads tiles) and was rebuilt on every keystroke.
-                Material(
-                  color: colors.card,
-                  borderRadius: BorderRadius.circular(20),
-                  child: InkWell(
-                    onTap: _openFullMap,
-                    borderRadius: BorderRadius.circular(20),
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: colors.border),
-                        boxShadow: isDark ? null : AppShadows.soft,
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 46,
-                            height: 46,
-                            decoration: BoxDecoration(
-                              gradient: AppGradients.primary,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: const Icon(Icons.map_outlined, color: Colors.white),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Nearby food spots',
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 14.5,
-                                        color: colors.navy)),
-                                const SizedBox(height: 2),
-                                Text(
-                                  state.locationDenied
-                                      ? 'Location off — showing est. distances'
-                                      : '${results.length} places · tap to open the map',
-                                  style: TextStyle(fontSize: 12, color: colors.muted),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(Icons.chevron_right, color: colors.muted),
-                        ],
-                      ),
-                    ),
+                // Live map preview (tap to expand). It is created just after the
+                // feed first appears and its markers are only rebuilt when the
+                // restaurants really change, so typing in the search box no
+                // longer touches the map.
+                RepaintBoundary(
+                  child: _MapPreview(
+                    restaurants: state.restaurants,
+                    userLat: state.userLat,
+                    userLng: state.userLng,
+                    locationDenied: state.locationDenied,
+                    onExpand: _openFullMap,
                   ),
                 ),
                 const SizedBox(height: 22),
@@ -309,6 +268,151 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The small live Google Map on the feed.
+class _MapPreview extends StatefulWidget {
+  final List<Restaurant> restaurants;
+  final double? userLat;
+  final double? userLng;
+  final bool locationDenied;
+  final VoidCallback onExpand;
+  const _MapPreview({
+    required this.restaurants,
+    required this.userLat,
+    required this.userLng,
+    required this.locationDenied,
+    required this.onExpand,
+  });
+
+  @override
+  State<_MapPreview> createState() => _MapPreviewState();
+}
+
+class _MapPreviewState extends State<_MapPreview> {
+  static const _tanauanCenter = LatLng(14.0863, 121.1497);
+
+  bool _showMap = false;
+  Set<Marker> _markers = {};
+  String _markersKey = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // Let the feed draw first, then create the native map view.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 250), () {
+        if (mounted) setState(() => _showMap = true);
+      });
+    });
+  }
+
+  /// Rebuilt only when a restaurant, its match % or its distance changed.
+  Set<Marker> _markersFor(List<Restaurant> list) {
+    final key = list
+        .map((r) => '${r.id}:${r.matchPercent}:${r.distanceKm.toStringAsFixed(1)}')
+        .join('|');
+    if (key != _markersKey) {
+      _markersKey = key;
+      _markers = list.map((r) {
+        return Marker(
+          markerId: MarkerId(r.id),
+          position: LatLng(r.latitude, r.longitude),
+          infoWindow: InfoWindow(
+            title: r.name,
+            snippet: '${r.matchPercent}% match • ${r.distanceKm.toStringAsFixed(1)} km',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => RestaurantDetailScreen(restaurant: r)),
+            ),
+          ),
+        );
+      }).toSet();
+    }
+    return _markers;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final target = (widget.userLat != null && widget.userLng != null)
+        ? LatLng(widget.userLat!, widget.userLng!)
+        : _tanauanCenter;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: isDark ? null : AppShadows.card,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: SizedBox(
+          height: 130,
+          child: Stack(
+            children: [
+              if (_showMap)
+                AbsorbPointer(
+                  child: GoogleMap(
+                    initialCameraPosition: CameraPosition(target: target, zoom: 14),
+                    markers: _markersFor(widget.restaurants),
+                    myLocationEnabled: widget.userLat != null,
+                    myLocationButtonEnabled: false,
+                    zoomControlsEnabled: false,
+                    liteModeEnabled: true,
+                  ),
+                )
+              else
+                Positioned.fill(
+                  child: Container(
+                    color: colors.card,
+                    alignment: Alignment.center,
+                    child: Icon(Icons.map_outlined, size: 30, color: colors.muted),
+                  ),
+                ),
+              Positioned.fill(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(onTap: widget.onExpand),
+                ),
+              ),
+              Positioned(
+                right: 10,
+                bottom: 10,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: colors.card,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: isDark ? null : AppShadows.soft,
+                  ),
+                  child: Text('Tap to expand map',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: colors.navy)),
+                ),
+              ),
+              if (widget.locationDenied)
+                Positioned(
+                  left: 10,
+                  top: 10,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: colors.card,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: isDark ? null : AppShadows.soft,
+                    ),
+                    child: Text('Location off — showing est. distances',
+                        style: TextStyle(fontSize: 10.5, color: colors.muted)),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

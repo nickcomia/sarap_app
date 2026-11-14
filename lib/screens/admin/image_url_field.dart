@@ -29,6 +29,8 @@ class ImageUrlField extends StatelessWidget {
                   height: 160,
                   width: double.infinity,
                   fit: BoxFit.cover,
+                  // The preview is small, so decode it small.
+                  cacheWidth: 800,
                   errorBuilder: (_, __, ___) => Container(
                     height: 160,
                     width: double.infinity,
@@ -47,7 +49,9 @@ class ImageUrlField extends StatelessWidget {
               decoration: const InputDecoration(
                 labelText: 'Image URL (optional)',
                 hintText: 'https://raw.githubusercontent.com/...',
-                helperText: 'Paste a link to the photo. Leave empty for no photo.',
+                helperText:
+                    'Paste a link to the photo. Tip: resize it to about 800 px wide '
+                    'before uploading it. Leave empty for no photo.',
                 prefixIcon: Icon(Icons.image_outlined),
               ),
               validator: (v) {
