@@ -19,7 +19,7 @@ class AiRecommendationService {
     _model ??= FirebaseAI.googleAI(
       appCheck: FirebaseAppCheck.instance,
     ).generativeModel(
-      model: 'gemini-3.8-flash',
+      model: 'gemini-3.5-flash-lite',
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
         temperature: 0.7,
