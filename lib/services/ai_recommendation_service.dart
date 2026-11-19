@@ -1,12 +1,13 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_ai/firebase_ai.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import '../models.dart';
 
 /// Calls Gemini (via Firebase AI Logic — free Gemini Developer API tier,
 /// no Cloud Function or Blaze plan needed) to pick and explain the best
 /// restaurant matches for a user, on top of the app's existing rule-based
-/// MatchingEngine scoring.flutter yu
+/// MatchingEngine scoring.
 ///
 /// The existing MatchingEngine already narrows/scores the full list —
 /// this only re-ranks and explains the top candidates it's handed, so a
@@ -15,8 +16,10 @@ class AiRecommendationService {
   static GenerativeModel? _model;
 
   static GenerativeModel _getModel() {
-    _model ??= FirebaseAI.googleAI().generativeModel(
-      model: 'gemini-2.0-flash',
+    _model ??= FirebaseAI.googleAI(
+      appCheck: FirebaseAppCheck.instance,
+    ).generativeModel(
+      model: 'gemini-3.8-flash',
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
         temperature: 0.7,
@@ -73,16 +76,21 @@ Only use restaurantId values from the candidate list above. Do not invent restau
       final model = _getModel();
       final response = await model.generateContent([Content.text(prompt)]);
       final text = response.text;
-      if (text == null || text.trim().isEmpty) return [];
+      if (text == null || text.trim().isEmpty) {
+        debugPrint('AI PICKS: empty response from model');
+        return [];
+      }
 
       final decoded = jsonDecode(text.trim()) as List<dynamic>;
       final validIds = shortlist.map((r) => r.id).toSet();
 
-      return decoded
+      final picks = decoded
           .map((e) => AiPick.fromJson(e as Map<String, dynamic>))
           .where((pick) => validIds.contains(pick.restaurantId))
           .take(maxPicks)
           .toList();
+      debugPrint('AI PICKS OK: ${picks.length}');
+      return picks;
     } catch (e, stack) {
       debugPrint('AI RECOMMENDATION ERROR: $e');
       debugPrint('STACK: $stack');
