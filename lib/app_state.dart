@@ -43,6 +43,39 @@ class AppState extends ChangeNotifier {
   bool get hasAnyMeal =>
       mealPlan.any((d) => d.meals.any((m) => m.isFilled));
 
+        // --- Moderation (strikes / bans / disabled account) ------------------
+  int strikes = 0;
+  DateTime? bannedUntil;
+  bool accountDisabled = false;
+  String? disabledReason;
+
+  bool get isBanned =>
+      bannedUntil != null && bannedUntil!.isAfter(DateTime.now());
+
+  Future<void> loadModerationState() async {
+    if (!isLoggedIn) return;
+    try {
+      final m = await FirebaseService.fetchModerationState();
+      strikes = (m['strikes'] as int?) ?? 0;
+      bannedUntil = m['bannedUntil'] as DateTime?;
+      accountDisabled = m['disabled'] == true;
+      disabledReason = m['disabledReason'] as String?;
+      notifyListeners();
+    } catch (_) {
+      // Offline: keep whatever is known locally.
+    }
+  }
+
+  void applyViolation(ViolationOutcome o) {
+    strikes = o.strikes;
+    bannedUntil = o.bannedUntil;
+    accountDisabled = o.disabled;
+    if (o.disabled) {
+      disabledReason = 'Repeated use of hateful or abusive language.';
+    }
+    notifyListeners();
+  }
+
   // Tanauan City centre, used to decide which restaurants are "local".
   static const _tanauanLat = 14.0863;
   static const _tanauanLng = 121.1497;

@@ -9,6 +9,7 @@ import 'screens/splash_screen.dart';
 import 'screens/home_shell.dart';
 import 'screens/onboarding/onboarding_flow.dart';
 import 'screens/verify_email_screen.dart';
+import 'screens/disabled_account_screen.dart';
 import 'services/notification_service.dart';
 import 'services/firebase_service.dart';
 import 'app_state.dart';
@@ -77,9 +78,10 @@ void main() async {
         }
       }
 
-      // Re-download the saved profile, restaurants, saved places and meal
-      // plan (cache-first). Wait at most 1.5 seconds; whatever is not ready
-      // by then keeps loading and the screens update by themselves.
+      // Re-download the saved profile, restaurants, saved places, meal
+      // plan and moderation state (cache-first). Wait at most 1.5 seconds;
+      // whatever is not ready by then keeps loading and the screens update
+      // by themselves.
       await _bestEffort(
         AppState.instance.loadCurrentUserIfLoggedIn(),
         const Duration(milliseconds: 1500),
@@ -114,6 +116,9 @@ class SarapApp extends StatelessWidget {
     } else if (!emailVerified) {
       // Signed in but the email is not verified yet: verify first.
       startScreen = VerifyEmailScreen(email: FirebaseService.currentEmail ?? '');
+    } else if (AppState.instance.accountDisabled) {
+      // The account was disabled by moderation: show the appeal screen.
+      startScreen = const DisabledAccountScreen();
     } else if (!onboardingDone) {
       startScreen = const OnboardingFlow();
     } else {

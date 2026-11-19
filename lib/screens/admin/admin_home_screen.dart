@@ -5,6 +5,7 @@ import '../../theme.dart';
 import 'admin_add_restaurant_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'admin_restaurants_screen.dart';
+import 'admin_reviews_screen.dart';
 import 'admin_users_screen.dart';
 
 /// Admin dashboard shell: a dark sidebar on wide screens (a slide-out menu
@@ -43,6 +44,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         () => const AdminDashboardScreen()),
     _NavItem('Users & moderation', Icons.people_outline, 'INSIGHTS',
         () => const AdminUsersScreen()),
+    _NavItem('Review queue', Icons.rate_review_outlined, 'MODERATION',
+        () => const AdminReviewsScreen()),
   ];
 
   void _openAddRestaurant() {
@@ -482,8 +485,11 @@ class _OverviewPageState extends State<_OverviewPage> {
                       'Engagement charts and a downloadable PDF',
                       () => widget.onNavigate(3)),
                   action(Icons.people_outline, 'Users & moderation',
-                      'Browse accounts, reports and feedback',
+                      'Ban, disable or re-enable accounts',
                       () => widget.onNavigate(4)),
+                  action(Icons.rate_review_outlined, 'Review queue',
+                      'Approve or reject pending reviews',
+                      () => widget.onNavigate(5)),
                 ],
               );
             }),

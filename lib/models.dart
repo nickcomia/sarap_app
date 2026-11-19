@@ -377,3 +377,34 @@ class AiPick {
         'reason': reason,
       };
 }
+
+enum ReviewStatus { pending, approved, rejected }
+
+/// A user's written review of a restaurant. New reviews are saved as
+/// [ReviewStatus.pending] and only show to other users once an admin
+/// approves them.
+class Review {
+  final String id;
+  final String restaurantId;
+  final String userId;
+  final String userName;
+  final int rating; // 1..5
+  final String text;
+  final String? dish; // what the reviewer ate (optional)
+  final ReviewStatus status;
+  final String? rejectReason;
+  final DateTime? createdAt;
+
+  const Review({
+    required this.id,
+    required this.restaurantId,
+    required this.userId,
+    required this.userName,
+    required this.rating,
+    required this.text,
+    this.dish,
+    this.status = ReviewStatus.pending,
+    this.rejectReason,
+    this.createdAt,
+  });
+}

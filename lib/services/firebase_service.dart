@@ -18,11 +18,29 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+/// Result of recording a moderation violation for the signed-in user.
+class ViolationOutcome {
+  final int strikes;
+  final DateTime? bannedUntil;
+  final bool disabled;
+  final String message; // safe to show the user
+
+  ViolationOutcome({
+    required this.strikes,
+    required this.bannedUntil,
+    required this.disabled,
+    required this.message,
+  });
+}
+
 /// Wraps Firebase Authentication + Cloud Firestore. Data layout:
 ///
-///   users/{uid}                 -> { name, email, createdAt }
+///   users/{uid}                 -> { name, email, createdAt,
+///                                    strikes, bannedUntil, status, ... }
 ///   profiles/{uid}               -> onboarding + health profile fields
 ///   restaurants/{restaurantId}   -> sample Tanauan City restaurants
+///   reviews/{reviewId}           -> user reviews (pending/approved/rejected)
+///   moderationActions/{id}       -> audit trail of warnings, bans, disables
 ///   users/{uid}/saved/{restaurantId}     -> bookmark marker docs
 ///   users/{uid}/mealPlan/{day_slot}      -> one doc per meal slot
 class FirebaseService {
@@ -1004,6 +1022,166 @@ class FirebaseService {
         'calories': calories,
       });
     }, timeout: const Duration(seconds: 10));
+  }
+
+  // ------------------------------------------------------------------
+  // Reviews & moderation
+  // ------------------------------------------------------------------
+
+  static Review _reviewFromDoc(QueryDocumentSnapshot<Map<String, dynamic>> d) {
+    final m = d.data();
+    final ts = m['createdAt'];
+    final dish = (m['dish'] as String?)?.trim();
+    return Review(
+      id: d.id,
+      restaurantId: m['restaurantId'] ?? '',
+      userId: m['userId'] ?? '',
+      userName: m['userName'] ?? 'SARAP user',
+      rating: _asInt(m['rating']).clamp(1, 5).toInt(),
+      text: m['text'] ?? '',
+      dish: (dish == null || dish.isEmpty) ? null : dish,
+      status: ReviewStatus.values.firstWhere(
+        (s) => s.name == m['status'],
+        orElse: () => ReviewStatus.pending,
+      ),
+      rejectReason: m['rejectReason'],
+      createdAt: ts is Timestamp ? ts.toDate() : null,
+    );
+  }
+
+  /// Approved reviews of one restaurant, newest first. Sorted here so no
+  /// composite index is needed.
+  static Future<List<Review>> fetchApprovedReviews(String restaurantId) async {
+    final snap = await _db
+        .collection('reviews')
+        .where('restaurantId', isEqualTo: restaurantId)
+        .where('status', isEqualTo: 'approved')
+        .get();
+    final list = snap.docs.map(_reviewFromDoc).toList();
+    list.sort((a, b) => (b.createdAt ?? DateTime(2000))
+        .compareTo(a.createdAt ?? DateTime(2000)));
+    return list;
+  }
+
+  /// The signed-in user's own reviews of one restaurant (any status).
+  static Future<List<Review>> fetchMyReviews(String restaurantId) async {
+    final uid = currentUid;
+    if (uid == null) return [];
+    final snap = await _db
+        .collection('reviews')
+        .where('userId', isEqualTo: uid)
+        .where('restaurantId', isEqualTo: restaurantId)
+        .get();
+    return snap.docs.map(_reviewFromDoc).toList();
+  }
+
+  /// Saves a new review as 'pending'. It is invisible to other users until
+  /// an admin approves it.
+  static Future<void> submitReview({
+    required Restaurant restaurant,
+    required String userName,
+    required int rating,
+    required String text,
+    String? dish,
+  }) async {
+    final uid = currentUid;
+    if (uid == null) throw ApiException('You are not signed in');
+    if (rating < 1 || rating > 5) {
+      throw ApiException('Choose a rating from 1 to 5');
+    }
+       await _db.collection('reviews').doc('${uid}_${restaurant.id}').set({
+      'restaurantId': restaurant.id,
+      'restaurantName': restaurant.name,
+      'userId': uid,
+      'userName': userName,
+      'rating': rating,
+      'text': text.trim(),
+      'dish': (dish == null || dish.trim().isEmpty) ? null : dish.trim(),
+      'status': 'pending',
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// strikes / bannedUntil / disabled state of the signed-in user.
+  static Future<Map<String, dynamic>> fetchModerationState() async {
+    final uid = currentUid;
+    if (uid == null) return {};
+    final doc = await _db.collection('users').doc(uid).get();
+    final d = doc.data() ?? {};
+    final ts = d['bannedUntil'];
+    return {
+      'strikes': _asInt(d['strikes']),
+      'bannedUntil': ts is Timestamp ? ts.toDate() : null,
+      'disabled': d['status'] == 'disabled',
+      'disabledReason': d['disabledReason'],
+    };
+  }
+
+  /// Adds one strike to the signed-in user and applies the penalty ladder:
+  /// 1 = warning, 2 = 3-day ban, 3 = 7-day ban, 4+ = account disabled.
+  static Future<ViolationOutcome> recordViolation({required String reason}) async {
+    final uid = currentUid;
+    if (uid == null) throw ApiException('You are not signed in');
+    final ref = _db.collection('users').doc(uid);
+    late ViolationOutcome outcome;
+
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      final strikes = _asInt(snap.data()?['strikes']) + 1;
+      DateTime? until;
+      var disabled = false;
+      String message;
+
+      if (strikes == 1) {
+        message = 'Warning: hateful or abusive language is not allowed in '
+            'SARAP. Your review was not submitted. Another violation will '
+            'lead to a temporary ban.';
+      } else if (strikes == 2) {
+        until = DateTime.now().add(const Duration(days: 3));
+        message = 'Your review was not submitted. You are banned from '
+            'posting reviews for 3 days because of repeated violations.';
+      } else if (strikes == 3) {
+        until = DateTime.now().add(const Duration(days: 7));
+        message = 'Your review was not submitted. You are banned from '
+            'posting reviews for 7 days because of repeated violations.';
+      } else {
+        disabled = true;
+        message = 'Your account has been disabled because of repeated '
+            'violations.';
+      }
+
+      tx.set(ref, {
+        'strikes': strikes,
+        if (until != null) 'bannedUntil': Timestamp.fromDate(until),
+        if (disabled) 'status': 'disabled',
+        if (disabled)
+          'disabledReason': 'Repeated use of hateful or abusive language.',
+        'lastViolationAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      outcome = ViolationOutcome(
+        strikes: strikes,
+        bannedUntil: until,
+        disabled: disabled,
+        message: message,
+      );
+    }, timeout: const Duration(seconds: 10));
+
+    // Audit trail for the admin console. Best effort only.
+    try {
+      await _db.collection('moderationActions').add({
+        'userId': uid,
+        'action': outcome.disabled
+            ? 'disabled'
+            : (outcome.bannedUntil != null ? 'temporary_ban' : 'warning'),
+        'strikes': outcome.strikes,
+        'reason': reason,
+        'source': 'word_filter',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
+
+    return outcome;
   }
 
   // ------------------------------------------------------------------
