@@ -7,6 +7,7 @@ import '../services/firebase_service.dart';
 import 'onboarding/onboarding_flow.dart';
 import 'home_shell.dart';
 import 'verify_email_screen.dart';
+import 'disabled_account_screen.dart';
 
 /// Figure 8: Sign In / Register Screen.
 /// Tabs switch between the login view and account-creation view; includes
@@ -72,6 +73,14 @@ class _AuthScreenState extends State<AuthScreen> {
     return null;
   }
 
+  /// Replaces everything with the "account disabled" screen.
+  void _showDisabledScreen() {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const DisabledAccountScreen()),
+      (route) => false,
+    );
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     final state = AppState.instance;
@@ -101,6 +110,13 @@ class _AuthScreenState extends State<AuthScreen> {
           password: _passwordController.text,
         );
         if (!mounted) return;
+
+        // A disabled account never reaches onboarding or the Home feed.
+        // login() has already loaded the moderation state.
+        if (state.accountDisabled) {
+          _showDisabledScreen();
+          return;
+        }
 
         // Accounts that haven't finished onboarding go back to it (TC-033/034).
         final done = await FirebaseService.isOnboardingComplete();
@@ -177,7 +193,8 @@ class _AuthScreenState extends State<AuthScreen> {
   /// Used by Google sign-in once Firebase has accepted the credential:
   /// saves name/email, loads THIS account's saved profile (so the calorie
   /// target never uses placeholder defaults), then routes to onboarding or
-  /// Home depending on the saved onboarding flag.
+  /// Home depending on the saved onboarding flag. A disabled account is
+  /// sent to the disabled screen first.
   Future<void> _finishSocialSignIn({
     required String? displayName,
     required String? email,
@@ -201,6 +218,14 @@ class _AuthScreenState extends State<AuthScreen> {
       name: state.profile.name,
       email: state.profile.email,
     );
+
+    // Is this account disabled or banned? Check before loading anything else.
+    await state.loadModerationState();
+    if (!mounted) return;
+    if (state.accountDisabled) {
+      _showDisabledScreen();
+      return;
+    }
 
     // Load this account's saved health data and preferences first.
     await state.loadProfileFromServer();

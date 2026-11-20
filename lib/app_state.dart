@@ -43,7 +43,7 @@ class AppState extends ChangeNotifier {
   bool get hasAnyMeal =>
       mealPlan.any((d) => d.meals.any((m) => m.isFilled));
 
-        // --- Moderation (strikes / bans / disabled account) ------------------
+  // --- Moderation (strikes / bans / disabled account) ------------------
   int strikes = 0;
   DateTime? bannedUntil;
   bool accountDisabled = false;
@@ -52,6 +52,7 @@ class AppState extends ChangeNotifier {
   bool get isBanned =>
       bannedUntil != null && bannedUntil!.isAfter(DateTime.now());
 
+  /// Reads strikes / bannedUntil / disabled state of the signed-in user.
   Future<void> loadModerationState() async {
     if (!isLoggedIn) return;
     try {
@@ -66,6 +67,8 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Applies the result of a new violation right away, without waiting for
+  /// another read from the server.
   void applyViolation(ViolationOutcome o) {
     strikes = o.strikes;
     bannedUntil = o.bannedUntil;
@@ -85,6 +88,14 @@ class AppState extends ChangeNotifier {
   List<AiPick> aiPicks = [];
   bool loadingAiPicks = false;
 
+  // True while a request is running, so duplicate calls are ignored.
+  bool _aiRequestRunning = false;
+
+  // Each request gets a number. Only the newest one may change the state,
+  // so an old request can never overwrite newer picks (or bring picks back
+  // after sign-out).
+  int _aiRequestId = 0;
+
   // v2: the cache now remembers which shortlist the picks were built from.
   static const _aiCacheKey = 'ai_picks_cache_v2';
   static const _aiCacheMaxAge = Duration(hours: 2);
@@ -98,31 +109,48 @@ class AppState extends ChangeNotifier {
   /// falling back to a real Gemini request. The cache only counts when the
   /// shortlist is unchanged. Pass forceRefresh: true after preferences
   /// change, since a stale cache would show outdated reasoning.
+  ///
+  /// Picks that are already on screen are never removed: the spinner only
+  /// shows when there is nothing to display yet, and a slow, failed or
+  /// empty answer keeps the existing picks.
   Future<void> loadAiRecommendations({bool forceRefresh = false}) async {
     // Ignore duplicate calls while one is already running.
-    if (loadingAiPicks && !forceRefresh) return;
+    if (_aiRequestRunning && !forceRefresh) return;
 
-    if (!forceRefresh) {
-      final cached = await _loadCachedAiPicks();
-      if (cached != null) {
-        aiPicks = cached;
-        notifyListeners();
-        return;
+    final myId = ++_aiRequestId;
+    _aiRequestRunning = true;
+
+    try {
+      if (!forceRefresh) {
+        final cached = await _loadCachedAiPicks();
+        if (myId != _aiRequestId) return; // a newer request took over
+        if (cached != null) {
+          aiPicks = cached;
+          return; // finally block notifies listeners
+        }
       }
-    }
 
-    final key = _shortlistKey();
-    loadingAiPicks = true;
-    notifyListeners();
-    aiPicks = await AiRecommendationService.getRecommendations(
-      profile: profile,
-      shortlist: sortedByMatch.take(8).toList(),
-    );
-    loadingAiPicks = false;
-    notifyListeners();
+      final key = _shortlistKey();
+      loadingAiPicks = aiPicks.isEmpty;
+      notifyListeners();
 
-    if (aiPicks.isNotEmpty) {
-      await _saveAiPicksToCache(aiPicks, key);
+      final fresh = await AiRecommendationService.getRecommendations(
+        profile: profile,
+        shortlist: sortedByMatch.take(8).toList(),
+      );
+      if (myId != _aiRequestId) return; // signed out or replaced meanwhile
+
+      // A failed or empty answer must never wipe picks already on screen.
+      if (fresh.isNotEmpty) {
+        aiPicks = fresh;
+        await _saveAiPicksToCache(fresh, key);
+      }
+    } finally {
+      if (myId == _aiRequestId) {
+        _aiRequestRunning = false;
+        loadingAiPicks = false;
+      }
+      notifyListeners();
     }
   }
 
@@ -259,12 +287,13 @@ class AppState extends ChangeNotifier {
     // Not awaited: registering the push token must not delay sign-in.
     NotificationService.registerTokenForCurrentUser().catchError((_) {});
 
-    // Load this account's own profile, saved places and meal plan at the
-    // same time (they don't depend on each other).
+    // Load this account's own profile, saved places, meal plan and
+    // moderation state at the same time (they don't depend on each other).
     await Future.wait([
       loadProfileFromServer(),
       loadSavedFromServer(),
       loadMealPlanFromServer(),
+      loadModerationState(),
     ]);
   }
 
@@ -381,6 +410,7 @@ class AppState extends ChangeNotifier {
         loadRestaurantsFromServer(),
         loadSavedFromServer(),
         loadMealPlanFromServer(),
+        loadModerationState(),
       ]);
 
       // Not awaited: this needs the internet and must never hold up start-up.
@@ -1075,7 +1105,15 @@ class AppState extends ChangeNotifier {
     missingHealthFields = [];
     _healthProfileLoaded = false;
     aiPicks = [];
+    // Cancel any AI request still running so it cannot bring picks back.
+    _aiRequestId++;
+    _aiRequestRunning = false;
+    loadingAiPicks = false;
     homeTabIndex = 0;
+    strikes = 0;
+    bannedUntil = null;
+    accountDisabled = false;
+    disabledReason = null;
     _clearMenuCache();
     for (final r in restaurants) {
       r.isSaved = false;

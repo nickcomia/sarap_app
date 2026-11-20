@@ -5,10 +5,12 @@ import '../app_state.dart';
 import '../models.dart';
 import '../services/firebase_service.dart';
 import '../widgets/common.dart';
+import '../widgets/review_sheet.dart';
 
 /// Figure 14: Restaurant / Establishment Detail Screen.
 /// (1) Back arrow, (2) heart/save button, (3) "Get directions" button.
-/// Each menu item also has an "Add to meal plan" button.
+/// Each menu item also has an "Add to meal plan" button, and users can
+/// read approved reviews and write their own (checked before posting).
 class RestaurantDetailScreen extends StatefulWidget {
   final Restaurant restaurant;
   const RestaurantDetailScreen({super.key, required this.restaurant});
@@ -21,12 +23,21 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
   List<MenuItem>? _menuItems;
   bool _adding = false;
 
+  List<Review>? _reviews; // approved reviews, visible to everyone
+  List<Review> _myReviews = []; // the signed-in user's own reviews
+
   static const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
 
   @override
   void initState() {
     super.initState();
     _loadMenu();
+    _loadReviews();
   }
 
   Future<void> _loadMenu() async {
@@ -38,6 +49,52 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
       debugPrint('fetchMenuItems FAILED for "${widget.restaurant.name}" (id: ${widget.restaurant.id}): $e');
       debugPrint('$st');
       if (mounted) setState(() => _menuItems = []);
+    }
+  }
+
+  String _date(DateTime d) => '${_months[d.month - 1]} ${d.day}, ${d.year}';
+
+  Future<void> _loadReviews() async {
+    try {
+      final results = await Future.wait<List<Review>>([
+        FirebaseService.fetchApprovedReviews(widget.restaurant.id),
+        FirebaseService.fetchMyReviews(widget.restaurant.id),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _reviews = results[0];
+        _myReviews = results[1];
+      });
+    } catch (e) {
+      debugPrint('fetchReviews FAILED for "${widget.restaurant.name}": $e');
+      if (mounted) setState(() => _reviews = []);
+    }
+  }
+
+  Future<void> _writeReview() async {
+    final app = AppState.instance;
+    if (!app.isLoggedIn) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Sign in to write a review')));
+      return;
+    }
+    if (app.isBanned) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'You can post reviews again on ${_date(app.bannedUntil!)}.')));
+      return;
+    }
+    final submitted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => ReviewSheet(restaurant: widget.restaurant),
+    );
+    if (!mounted) return;
+    setState(() {}); // a violation may have started a ban
+    if (submitted == true) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Thanks! Your review will appear once it is approved.')));
+      _loadReviews();
     }
   }
 
@@ -227,6 +284,10 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                   const SizedBox(height: 10),
                   _buildMenuSection(context),
                   const SizedBox(height: 18),
+                  Text('Reviews', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 10),
+                  _buildReviewsSection(context),
+                  const SizedBox(height: 18),
                   Text('Highlights', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 10),
                   Wrap(
@@ -371,6 +432,119 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
           ),
         );
       }).toList(),
+    );
+  }
+
+  Widget _stars(int rating, {double size = 15}) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < 5; i++)
+            Icon(i < rating ? Icons.star : Icons.star_border,
+                size: size, color: Colors.amber.shade600),
+        ],
+      );
+
+  Widget _buildReviewsSection(BuildContext context) {
+    final colors = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final app = AppState.instance;
+
+    if (_reviews == null) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2.4)),
+      );
+    }
+
+    final reviews = _reviews!;
+    final avg = reviews.isEmpty
+        ? null
+        : reviews.fold<int>(0, (s, r) => s + r.rating) / reviews.length;
+    final hasPending = _myReviews.any((r) => r.status == ReviewStatus.pending);
+    final hasApproved = _myReviews.any((r) => r.status == ReviewStatus.approved);
+
+    Widget note(String s) =>
+        Text(s, style: TextStyle(color: colors.muted, fontSize: 12.5));
+
+    final Widget action;
+    if (hasPending) {
+      action = note('Your review is waiting for approval.');
+    } else if (hasApproved) {
+      action = note('Thanks for reviewing this place.');
+    } else if (app.isBanned) {
+      action = note('You can post reviews again on ${_date(app.bannedUntil!)}.');
+    } else {
+      action = OutlinedButton.icon(
+        onPressed: _writeReview,
+        icon: const Icon(Icons.rate_review_outlined),
+        label: const Text('Write a review'),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (avg != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              children: [
+                _stars(avg.round(), size: 18),
+                const SizedBox(width: 8),
+                Text(
+                    '${avg.toStringAsFixed(1)} • ${reviews.length} review'
+                    '${reviews.length == 1 ? '' : 's'}',
+                    style: TextStyle(color: colors.muted, fontSize: 13)),
+              ],
+            ),
+          ),
+        action,
+        const SizedBox(height: 10),
+        if (reviews.isEmpty)
+          note('No reviews yet. Be the first to share your experience.')
+        else
+          for (final r in reviews.take(20))
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: colors.card,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: isDark ? null : AppShadows.soft,
+                border: Border.all(color: colors.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(r.userName,
+                            style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13.5,
+                                color: colors.navy)),
+                      ),
+                      if (r.createdAt != null)
+                        Text(_date(r.createdAt!),
+                            style: TextStyle(color: colors.muted, fontSize: 11.5)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  _stars(r.rating),
+                  if (r.dish != null) ...[
+                    const SizedBox(height: 4),
+                    Text('Ate: ${r.dish}',
+                        style: TextStyle(color: colors.muted, fontSize: 12)),
+                  ],
+                  const SizedBox(height: 6),
+                  Text(r.text,
+                      style: TextStyle(color: colors.navy, fontSize: 13.5, height: 1.4)),
+                ],
+              ),
+            ),
+      ],
     );
   }
 }

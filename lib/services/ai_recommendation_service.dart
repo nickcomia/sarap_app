@@ -1,32 +1,27 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:firebase_ai/firebase_ai.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 import '../models.dart';
 
-/// Calls Gemini (via Firebase AI Logic — free Gemini Developer API tier,
-/// no Cloud Function or Blaze plan needed) to pick and explain the best
-/// restaurant matches for a user, on top of the app's existing rule-based
-/// MatchingEngine scoring.
+/// Asks Gemini to pick and explain the best restaurant matches for a user,
+/// on top of the app's existing rule-based MatchingEngine scoring.
+///
+/// The request goes through a small serverless proxy (see the sarap-ai-proxy
+/// folder) instead of calling Gemini from inside the app. That keeps the API
+/// key out of the APK, works for apps installed from a downloaded APK, and
+/// lets the model name be changed on the server without a new app release.
 ///
 /// The existing MatchingEngine already narrows/scores the full list —
 /// this only re-ranks and explains the top candidates it's handed, so a
 /// slow/failed AI call never blocks the app from showing recommendations.
 class AiRecommendationService {
-  static GenerativeModel? _model;
+  /// Replace with your deployed Vercel URL, e.g.
+  /// 'https://sarap-ai-proxy.vercel.app/api/ai-picks'
+  static const String _endpoint =
+      'https://sarap-ai-proxy.vercel.app/api/ai-picks';
 
-  static GenerativeModel _getModel() {
-    _model ??= FirebaseAI.googleAI(
-      appCheck: FirebaseAppCheck.instance,
-    ).generativeModel(
-      model: 'gemini-3.5-flash-lite',
-      generationConfig: GenerationConfig(
-        responseMimeType: 'application/json',
-        temperature: 0.7,
-      ),
-    );
-    return _model!;
-  }
+  static const Duration _timeout = Duration(seconds: 30);
 
   /// Takes the user's profile and a pre-scored shortlist of restaurants
   /// (pass in state.sortedByMatch.take(8) or similar — keep this list
@@ -73,9 +68,32 @@ Only use restaurantId values from the candidate list above. Do not invent restau
 ''';
 
     try {
-      final model = _getModel();
-      final response = await model.generateContent([Content.text(prompt)]);
-      final text = response.text;
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        debugPrint('AI PICKS: not signed in, skipping');
+        return [];
+      }
+      final idToken = await user.getIdToken();
+
+      final response = await http
+          .post(
+            Uri.parse(_endpoint),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $idToken',
+            },
+            body: jsonEncode({'prompt': prompt}),
+          )
+          .timeout(_timeout);
+
+      if (response.statusCode != 200) {
+        debugPrint(
+            'AI RECOMMENDATION ERROR: proxy returned ${response.statusCode}: ${response.body}');
+        return [];
+      }
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final text = body['text'] as String?;
       if (text == null || text.trim().isEmpty) {
         debugPrint('AI PICKS: empty response from model');
         return [];
