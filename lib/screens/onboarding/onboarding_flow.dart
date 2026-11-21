@@ -73,6 +73,7 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
     // goes to Home instead of back here (TC-033, TC-034).
     await FirebaseService.markOnboardingComplete();
     state.generateMealPlan();
+    state.setHomeTab(0); // always land on the For You feed
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const HomeShell()),

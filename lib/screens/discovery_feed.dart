@@ -40,6 +40,13 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
 
   @override
   Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: AppState.instance,
+      builder: (context, _) => _buildFeed(context),
+    );
+  }
+
+  Widget _buildFeed(BuildContext context) {
     final state = AppState.instance;
     final results = state.sortedByMatch.where((r) {
       if (_query.isEmpty) return true;
