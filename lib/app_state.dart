@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart'
+    show FirebaseFirestore, DocumentSnapshot;
 import 'package:flutter/material.dart';
 import 'models.dart';
 import 'mock_data.dart';
@@ -77,6 +80,35 @@ class AppState extends ChangeNotifier {
       disabledReason = 'Repeated use of hateful or abusive language.';
     }
     notifyListeners();
+  }
+
+  // --- Live moderation watch ----------------------------------------
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _moderationSub;
+  String? _moderationWatchUid;
+
+  /// Listens to the signed-in user's own record. When an admin disables,
+  /// re-enables, bans or unbans the account, the state refreshes within
+  /// seconds. Safe to call many times.
+  void startModerationWatch() {
+    final uid = FirebaseService.currentUid;
+    if (uid == null) return;
+    if (_moderationSub != null && _moderationWatchUid == uid) return;
+    _moderationSub?.cancel();
+    _moderationWatchUid = uid;
+    _moderationSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .listen((snap) {
+      if (snap.metadata.hasPendingWrites) return;
+      loadModerationState();
+    }, onError: (_) {});
+  }
+
+  void stopModerationWatch() {
+    _moderationSub?.cancel();
+    _moderationSub = null;
+    _moderationWatchUid = null;
   }
 
   // Tanauan City centre, used to decide which restaurants are "local".
@@ -272,12 +304,14 @@ class AppState extends ChangeNotifier {
     missingHealthFields = ['age', 'height', 'weight'];
     _healthProfileLoaded = false;
     notifyListeners();
+    startModerationWatch();
     // Not awaited: registering the push token must not delay the screen.
     NotificationService.registerTokenForCurrentUser().catchError((_) {});
   }
 
   Future<void> login({required String email, required String password}) async {
     final result = await FirebaseService.login(email: email, password: password);
+    startModerationWatch();
     // Never let a previous account's plan linger while this one loads.
     mealPlan = [];
     planMessage = null;
@@ -396,6 +430,7 @@ class AppState extends ChangeNotifier {
       await logoutFromServer();
       return;
     }
+    startModerationWatch();
     try {
       // If the user opened an email-change verification link, copy the
       // new address from Firebase Auth into their Firestore user doc.
@@ -1099,6 +1134,7 @@ class AppState extends ChangeNotifier {
   }
 
   void resetForSignOut() {
+    stopModerationWatch();
     profile = UserProfile();
     mealPlan = [];
     planMessage = null;

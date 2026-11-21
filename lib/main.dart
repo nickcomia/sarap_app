@@ -14,6 +14,34 @@ import 'services/notification_service.dart';
 import 'services/firebase_service.dart';
 import 'app_state.dart';
 
+/// Lets the app change screens from outside a widget (used when an admin
+/// disables or re-enables the account while the user is using the app).
+final navigatorKey = GlobalKey<NavigatorState>();
+bool _wasDisabled = false;
+
+/// Moves the user to the disabled screen the moment an admin disables the
+/// account, and back into the app when it is re-enabled.
+void _watchModeration() {
+  _wasDisabled = AppState.instance.accountDisabled;
+  AppState.instance.addListener(() {
+    final now = AppState.instance.accountDisabled;
+    if (now == _wasDisabled) return;
+    _wasDisabled = now;
+    if (!AppState.instance.isLoggedIn) return; // sign-out, not a re-enable
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (now && DisabledAccountScreen.isOpen) return;
+      if (!now && !DisabledAccountScreen.isOpen) return;
+      navigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) =>
+              now ? const DisabledAccountScreen() : const HomeShell(),
+        ),
+        (_) => false,
+      );
+    });
+  });
+}
+
 /// Waits for [work] for at most [limit]. If it is slower (slow or no
 /// internet) or fails, start-up simply carries on; the work keeps running
 /// in the background and the screens update when it finishes.
@@ -91,6 +119,7 @@ void main() async {
     AppState.instance.loadRestaurantsFromServer();
   }
 
+  _watchModeration();
   runApp(SarapApp(onboardingDone: onboardingDone, emailVerified: emailVerified));
 }
 
@@ -130,6 +159,7 @@ class SarapApp extends StatelessWidget {
       builder: (context, _) {
         return MaterialApp(
           title: 'SARAP',
+          navigatorKey: navigatorKey,
           debugShowCheckedModeBanner: false,
           theme: _lightTheme,
           darkTheme: _darkTheme,

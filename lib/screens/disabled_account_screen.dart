@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -9,8 +10,16 @@ import 'splash_screen.dart';
 /// moderation system or by an administrator. The user can send an appeal
 /// from here; it is saved in the `appeals` collection (one document per
 /// user) for an administrator to review.
+///
+/// The appeal status updates live, and main.dart returns the user to the
+/// app automatically if an administrator re-enables the account.
 class DisabledAccountScreen extends StatefulWidget {
   const DisabledAccountScreen({super.key});
+
+  // Counts open copies of this screen, so main.dart knows whether the
+  // disabled screen is currently showing.
+  static int _openCount = 0;
+  static bool get isOpen => _openCount > 0;
 
   @override
   State<DisabledAccountScreen> createState() => _DisabledAccountScreenState();
@@ -22,36 +31,53 @@ class _DisabledAccountScreenState extends State<DisabledAccountScreen> {
   bool _sending = false;
   String? _existingStatus; // pending / approved / rejected, if one was sent
   String? _error;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _appealSub;
 
   @override
   void initState() {
     super.initState();
-    _loadExistingAppeal();
+    DisabledAccountScreen._openCount++;
+    AppState.instance.addListener(_onState);
+    _watchAppeal();
   }
 
-  @override
-  void dispose() {
-    _message.dispose();
-    super.dispose();
+  void _onState() {
+    if (mounted) setState(() {});
   }
 
-  Future<void> _loadExistingAppeal() async {
+  /// Live appeal status, so a rejection or approval shows without reopening.
+  void _watchAppeal() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
-      if (mounted) setState(() => _loading = false);
+      _loading = false;
       return;
     }
-    try {
-      final doc =
-          await FirebaseFirestore.instance.collection('appeals').doc(uid).get();
+    _appealSub = FirebaseFirestore.instance
+        .collection('appeals')
+        .doc(uid)
+        .snapshots()
+        .listen((doc) {
       if (!mounted) return;
       setState(() {
         _existingStatus = doc.exists ? (doc.data()?['status'] as String?) : null;
         _loading = false;
       });
-    } catch (_) {
+    }, onError: (_) {
       if (mounted) setState(() => _loading = false);
-    }
+    });
+    // If the connection is slow, show the form instead of a spinner.
+    Future.delayed(const Duration(seconds: 4), () {
+      if (mounted && _loading) setState(() => _loading = false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _appealSub?.cancel();
+    AppState.instance.removeListener(_onState);
+    DisabledAccountScreen._openCount--;
+    _message.dispose();
+    super.dispose();
   }
 
   Future<void> _sendAppeal() async {
