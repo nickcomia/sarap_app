@@ -3,6 +3,7 @@ import '../../services/admin_service.dart';
 import '../../services/firebase_service.dart';
 import '../../theme.dart';
 import 'admin_add_restaurant_screen.dart';
+import 'admin_appeals_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'admin_restaurants_screen.dart';
 import 'admin_reviews_screen.dart';
@@ -46,6 +47,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         () => const AdminUsersScreen()),
     _NavItem('Review queue', Icons.rate_review_outlined, 'MODERATION',
         () => const AdminReviewsScreen()),
+    _NavItem('Appeals', Icons.forum_outlined, 'MODERATION',
+        () => const AdminAppealsScreen()),
   ];
 
   void _openAddRestaurant() {
@@ -490,6 +493,9 @@ class _OverviewPageState extends State<_OverviewPage> {
                   action(Icons.rate_review_outlined, 'Review queue',
                       'Approve or reject pending reviews',
                       () => widget.onNavigate(5)),
+                  action(Icons.forum_outlined, 'Appeals',
+                      'Review appeals from disabled accounts',
+                      () => widget.onNavigate(6)),
                 ],
               );
             }),
