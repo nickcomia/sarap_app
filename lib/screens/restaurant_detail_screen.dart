@@ -10,7 +10,7 @@ import '../widgets/review_sheet.dart';
 /// Figure 14: Restaurant / Establishment Detail Screen.
 /// (1) Back arrow, (2) heart/save button, (3) "Get directions" button.
 /// Each menu item also has an "Add to meal plan" button, and users can
-/// read approved reviews and write their own (checked before posting).
+/// read approved reviews and write or edit their own (checked before posting).
 class RestaurantDetailScreen extends StatefulWidget {
   final Restaurant restaurant;
   const RestaurantDetailScreen({super.key, required this.restaurant});
@@ -71,7 +71,8 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     }
   }
 
-  Future<void> _writeReview() async {
+  /// Opens the review form. Pass [existing] to edit the user's own review.
+  Future<void> _writeReview({Review? existing}) async {
     final app = AppState.instance;
     if (!app.isLoggedIn) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -87,7 +88,8 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     final submitted = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => ReviewSheet(restaurant: widget.restaurant),
+      builder: (_) =>
+          ReviewSheet(restaurant: widget.restaurant, existing: existing),
     );
     if (!mounted) return;
     setState(() {}); // a violation may have started a ban
@@ -460,26 +462,65 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     final avg = reviews.isEmpty
         ? null
         : reviews.fold<int>(0, (s, r) => s + r.rating) / reviews.length;
-    final hasPending = _myReviews.any((r) => r.status == ReviewStatus.pending);
-    final hasApproved = _myReviews.any((r) => r.status == ReviewStatus.approved);
+
+    // Users can write several reviews of a place and edit any of their own.
+    // An edit goes back to "waiting for approval" so the admin checks it.
+    // Approved reviews show in the list below (with an Edit button on your
+    // own); waiting and rejected ones are shown here, only to you.
+    final myUid = FirebaseService.currentUid;
+    final unapproved =
+        _myReviews.where((x) => x.status != ReviewStatus.approved).toList();
 
     Widget note(String s) =>
         Text(s, style: TextStyle(color: colors.muted, fontSize: 12.5));
 
-    final Widget action;
-    if (hasPending) {
-      action = note('Your review is waiting for approval.');
-    } else if (hasApproved) {
-      action = note('Thanks for reviewing this place.');
-    } else if (app.isBanned) {
-      action = note('You can post reviews again on ${_date(app.bannedUntil!)}.');
-    } else {
-      action = OutlinedButton.icon(
-        onPressed: _writeReview,
-        icon: const Icon(Icons.rate_review_outlined),
-        label: const Text('Write a review'),
-      );
-    }
+    final Widget action = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (app.isBanned)
+          note('You can post reviews again on ${_date(app.bannedUntil!)}.')
+        else
+          OutlinedButton.icon(
+            onPressed: () => _writeReview(),
+            icon: const Icon(Icons.rate_review_outlined),
+            label: const Text('Write a review'),
+          ),
+        for (final m in unapproved)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(top: 10),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: colors.chipBg,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                note(m.status == ReviewStatus.pending
+                    ? 'Your review is waiting for approval.'
+                    : 'Not approved, so it is not shown. '
+                        'You can edit it and send it again.'),
+                const SizedBox(height: 4),
+                _stars(m.rating),
+                const SizedBox(height: 4),
+                Text(m.text,
+                    style: TextStyle(
+                        color: colors.navy, fontSize: 13.5, height: 1.4)),
+                if (!app.isBanned)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () => _writeReview(existing: m),
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      label: const Text('Edit'),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -541,6 +582,15 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                   const SizedBox(height: 6),
                   Text(r.text,
                       style: TextStyle(color: colors.navy, fontSize: 13.5, height: 1.4)),
+                  if (myUid != null && r.userId == myUid && !app.isBanned)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () => _writeReview(existing: r),
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        label: const Text('Edit'),
+                      ),
+                    ),
                 ],
               ),
             ),

@@ -1075,31 +1075,69 @@ class FirebaseService {
     return snap.docs.map(_reviewFromDoc).toList();
   }
 
-  /// Saves a new review as 'pending'. It is invisible to other users until
-  /// an admin approves it.
+  /// Most reviews one account may write for the same restaurant.
+  static const _maxReviewsPerPlace = 5;
+
+  /// Saves a review. A user may write several reviews of the same
+  /// restaurant and edit any of their own. Pass [reviewId] to edit an
+  /// existing review: it goes back to 'pending' so the admin checks the new
+  /// text. Without [reviewId] a new review is created.
   static Future<void> submitReview({
     required Restaurant restaurant,
     required String userName,
     required int rating,
     required String text,
     String? dish,
+    String? reviewId,
   }) async {
     final uid = currentUid;
     if (uid == null) throw ApiException('You are not signed in');
     if (rating < 1 || rating > 5) {
       throw ApiException('Choose a rating from 1 to 5');
     }
-       await _db.collection('reviews').doc('${uid}_${restaurant.id}').set({
-      'restaurantId': restaurant.id,
-      'restaurantName': restaurant.name,
-      'userId': uid,
-      'userName': userName,
-      'rating': rating,
-      'text': text.trim(),
-      'dish': (dish == null || dish.trim().isEmpty) ? null : dish.trim(),
-      'status': 'pending',
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+
+    final cleanDish =
+        (dish == null || dish.trim().isEmpty) ? null : dish.trim();
+
+    try {
+      if (reviewId != null) {
+        // Edit: same record, back to pending. createdAt is kept.
+        await _db.collection('reviews').doc(reviewId).update({
+          'restaurantName': restaurant.name,
+          'userName': userName,
+          'rating': rating,
+          'text': text.trim(),
+          'dish': cleanDish,
+          'status': 'pending',
+          'rejectReason': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        final mine = await fetchMyReviews(restaurant.id);
+        if (mine.length >= _maxReviewsPerPlace) {
+          throw ApiException(
+              'You can write up to $_maxReviewsPerPlace reviews for one place. '
+              'Edit one of your earlier reviews instead.');
+        }
+        await _db.collection('reviews').add({
+          'restaurantId': restaurant.id,
+          'restaurantName': restaurant.name,
+          'userId': uid,
+          'userName': userName,
+          'rating': rating,
+          'text': text.trim(),
+          'dish': cleanDish,
+          'status': 'pending',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        throw ApiException(
+            'You cannot post or edit reviews right now. Please try again later.');
+      }
+      rethrow;
+    }
   }
 
   /// strikes / bannedUntil / disabled state of the signed-in user.

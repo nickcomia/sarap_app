@@ -6,21 +6,35 @@ import '../services/content_filter.dart';
 import '../services/firebase_service.dart';
 import '../theme.dart';
 
-/// Bottom sheet for writing a review. Pops with `true` once it was saved.
+/// Bottom sheet for writing or editing a review. Pops with `true` once it
+/// was saved. Pass [existing] to edit the user's current review: the form
+/// opens filled in, and saving sends it for approval again.
 class ReviewSheet extends StatefulWidget {
   final Restaurant restaurant;
-  const ReviewSheet({super.key, required this.restaurant});
+  final Review? existing;
+  const ReviewSheet({super.key, required this.restaurant, this.existing});
 
   @override
   State<ReviewSheet> createState() => _ReviewSheetState();
 }
 
 class _ReviewSheetState extends State<ReviewSheet> {
-  final _text = TextEditingController();
-  final _dish = TextEditingController();
-  int _rating = 0;
+  late final TextEditingController _text;
+  late final TextEditingController _dish;
+  late int _rating;
   bool _busy = false;
   String? _error;
+
+  bool get _editing => widget.existing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    _text = TextEditingController(text: e?.text ?? '');
+    _dish = TextEditingController(text: e?.dish ?? '');
+    _rating = e?.rating ?? 0;
+  }
 
   @override
   void dispose() {
@@ -49,6 +63,7 @@ class _ReviewSheetState extends State<ReviewSheet> {
     }
 
     // 1) Word filter: a hit means a strike and the review is NOT saved.
+    //    This applies to edits too.
     final hit = ContentFilter.check('$text $dish');
     if (hit.blocked) {
       setState(() {
@@ -94,6 +109,7 @@ class _ReviewSheetState extends State<ReviewSheet> {
         rating: _rating,
         text: text,
         dish: dish,
+        reviewId: widget.existing?.id,
       );
       if (mounted) Navigator.of(context).pop(true);
     } on ApiException catch (e) {
@@ -125,7 +141,10 @@ class _ReviewSheetState extends State<ReviewSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Review ${widget.restaurant.name}',
+            Text(
+                _editing
+                    ? 'Edit your review of ${widget.restaurant.name}'
+                    : 'Review ${widget.restaurant.name}',
                 style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 10),
             Row(
@@ -166,9 +185,14 @@ class _ReviewSheetState extends State<ReviewSheet> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Reviews are checked before they are posted. Hateful or abusive '
-              'language leads to a warning, then temporary bans, and can end '
-              'with your account being disabled.',
+              _editing
+                  ? 'After you save, your review is checked again before it '
+                      'is shown. Hateful or abusive language leads to a '
+                      'warning, then temporary bans, and can end with your '
+                      'account being disabled.'
+                  : 'Reviews are checked before they are posted. Hateful or '
+                      'abusive language leads to a warning, then temporary '
+                      'bans, and can end with your account being disabled.',
               style: TextStyle(color: colors.muted, fontSize: 12, height: 1.4),
             ),
             if (_error != null) ...[
@@ -189,7 +213,7 @@ class _ReviewSheetState extends State<ReviewSheet> {
                         height: 18,
                         width: 18,
                         child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Submit review'),
+                    : Text(_editing ? 'Save changes' : 'Submit review'),
               ),
             ),
           ],
