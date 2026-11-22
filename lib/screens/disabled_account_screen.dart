@@ -147,7 +147,7 @@ class _DisabledAccountScreenState extends State<DisabledAccountScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.block, size: 72, color: AppColors.primary),
+                  const Icon(Icons.block, size: 72, color: AppColors.primary),
                   const SizedBox(height: 20),
                   Text('Your account has been disabled',
                       textAlign: TextAlign.center,

@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
@@ -240,14 +239,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Text('SARAP',
-                    style: pw.TextStyle(
+                    style: const pw.TextStyle(
                         fontSize: 11,
                         letterSpacing: 2,
                         fontWeight: pw.FontWeight.bold,
                         color: PdfColors.white)),
                 pw.SizedBox(height: 6),
                 pw.Text('Admin Engagement Report',
-                    style: pw.TextStyle(
+                    style: const pw.TextStyle(
                         fontSize: 24,
                         fontWeight: pw.FontWeight.bold,
                         color: PdfColors.white)),

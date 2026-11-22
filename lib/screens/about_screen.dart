@@ -24,11 +24,11 @@ class AboutScreen extends StatelessWidget {
             ),
             const SizedBox(height: 18),
 
-            _AboutCard(
+            const _AboutCard(
               icon: Icons.restaurant_menu,
               question: 'What is the application?',
               initiallyExpanded: true,
-              children: const [
+              children: [
                 _Para(
                   'SARAP is an Android mobile app that helps people in Tanauan '
                   'City, Batangas find nearby restaurants and eateries based on '
@@ -42,10 +42,10 @@ class AboutScreen extends StatelessWidget {
               ],
             ),
 
-            _AboutCard(
+            const _AboutCard(
               icon: Icons.lightbulb_outline,
               question: 'Why was it developed?',
-              children: const [
+              children: [
                 _Para(
                   'Tanauan City\'s food scene is growing fast, but there is no '
                   'central digital platform for it. Small, family-owned eateries '
@@ -62,10 +62,10 @@ class AboutScreen extends StatelessWidget {
               ],
             ),
 
-            _AboutCard(
+            const _AboutCard(
               icon: Icons.track_changes,
               question: 'What problem does it solve?',
-              children: const [
+              children: [
                 _Bullet('Finding places to eat that match your location, budget, and cravings.'),
                 _Bullet('Local Tanaueño eateries being overlooked because they lack online visibility.'),
                 _Bullet('Not knowing the calories or nutrition of meals when dining out.'),
@@ -73,10 +73,10 @@ class AboutScreen extends StatelessWidget {
               ],
             ),
 
-            _AboutCard(
+            const _AboutCard(
               icon: Icons.groups_outlined,
               question: 'Who developed the application?',
-              children: const [
+              children: [
                 _Para(
                   'SARAP was developed by Nick Aeron M. Comia and Kim Nicole M. '
                   'Pilapil, Bachelor of Science in Information Technology '
@@ -91,10 +91,10 @@ class AboutScreen extends StatelessWidget {
               ],
             ),
 
-            _AboutCard(
+            const _AboutCard(
               icon: Icons.flag_outlined,
               question: 'What are its goals?',
-              children: const [
+              children: [
                 _Bullet('Make it easy to discover nearby restaurants with maps, distance, and routes.'),
                 _Bullet('Give personalized restaurant and meal suggestions using AI.'),
                 _Bullet('Create daily and weekly meal plans and track calorie intake.'),

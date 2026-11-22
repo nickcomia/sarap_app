@@ -44,11 +44,11 @@ Future<List<int>> buildReportPdf({
       ),
       build: (ctx) => [
         pw.Text('SARAP',
-            style: pw.TextStyle(
+            style: const pw.TextStyle(
                 fontSize: 11, color: PdfColors.deepOrange, fontWeight: pw.FontWeight.bold)),
         pw.SizedBox(height: 2),
         pw.Text(title,
-            style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+            style: const pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
         pw.SizedBox(height: 4),
         pw.Text('Generated ${_stamp(DateTime.now())}',
             style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),

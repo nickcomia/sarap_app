@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -27,6 +27,8 @@ void _watchModeration() {
     final now = AppState.instance.accountDisabled;
     if (now == _wasDisabled) return;
     _wasDisabled = now;
+    debugPrint(
+        'MODERATION NAV: disabled=$now screenOpen=${DisabledAccountScreen.isOpen}');
     if (!AppState.instance.isLoggedIn) return; // sign-out, not a re-enable
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (now && DisabledAccountScreen.isOpen) return;

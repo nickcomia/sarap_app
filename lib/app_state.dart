@@ -58,12 +58,17 @@ class AppState extends ChangeNotifier {
   /// Reads strikes / bannedUntil / disabled state of the signed-in user.
   Future<void> loadModerationState() async {
     if (!isLoggedIn) return;
+    // Make sure the live watch is running for this account, whichever way
+    // the user signed in (email, Google, or an already signed-in start).
+    startModerationWatch();
     try {
       final m = await FirebaseService.fetchModerationState();
       strikes = (m['strikes'] as int?) ?? 0;
       bannedUntil = m['bannedUntil'] as DateTime?;
       accountDisabled = m['disabled'] == true;
       disabledReason = m['disabledReason'] as String?;
+      debugPrint(
+          'MODERATION STATE: disabled=$accountDisabled strikes=$strikes');
       notifyListeners();
     } catch (_) {
       // Offline: keep whatever is known locally.
@@ -95,14 +100,20 @@ class AppState extends ChangeNotifier {
     if (_moderationSub != null && _moderationWatchUid == uid) return;
     _moderationSub?.cancel();
     _moderationWatchUid = uid;
+    debugPrint('MODERATION WATCH: started for $uid');
     _moderationSub = FirebaseFirestore.instance
         .collection('users')
         .doc(uid)
         .snapshots()
         .listen((snap) {
+      debugPrint('MODERATION WATCH: snapshot status=${snap.data()?['status']} '
+          'fromCache=${snap.metadata.isFromCache} '
+          'pendingWrites=${snap.metadata.hasPendingWrites}');
       if (snap.metadata.hasPendingWrites) return;
       loadModerationState();
-    }, onError: (_) {});
+    }, onError: (e) {
+      debugPrint('MODERATION WATCH ERROR: $e');
+    });
   }
 
   void stopModerationWatch() {
