@@ -705,144 +705,214 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   // Screen
   // ---------------------------------------------------------------
 
+  static const _tabNames = [
+    'Users',
+    'Restaurants',
+    'Popularity',
+    'Diner demand',
+    'Moderation',
+    'Insights',
+  ];
+
   @override
   Widget build(BuildContext context) {
     final s = _stats;
     final phone = MediaQuery.of(context).size.width < 600;
-    final pad = phone ? 16.0 : 24.0;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Dashboard & reports'),
-        actions: [
-          IconButton(
-            tooltip: 'Reload',
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-          ),
-          if (s != null && !phone) ...[
+    return DefaultTabController(
+      length: _tabNames.length,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Dashboard & reports'),
+          actions: [
             IconButton(
-              tooltip: 'Copy report',
-              onPressed: () => _copyReport(s),
-              icon: const Icon(Icons.copy_all_outlined),
+              tooltip: 'Reload',
+              onPressed: _load,
+              icon: const Icon(Icons.refresh),
             ),
-            IconButton(
-              tooltip: 'Print / Save as PDF',
-              onPressed: () => _printReport(s),
-              icon: const Icon(Icons.print_outlined),
-            ),
-            IconButton(
-              tooltip: 'Download PDF',
-              onPressed: () => _downloadPdf(s),
-              icon: const Icon(Icons.picture_as_pdf_outlined),
-            ),
-          ],
-          // On phones the three report actions share one menu.
-          if (s != null && phone)
-            PopupMenuButton<String>(
-              tooltip: 'Report options',
-              icon: const Icon(Icons.more_vert),
-              onSelected: (v) {
-                if (v == 'copy') _copyReport(s);
-                if (v == 'print') _printReport(s);
-                if (v == 'pdf') _downloadPdf(s);
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'copy', child: Text('Copy report')),
-                PopupMenuItem(value: 'print', child: Text('Print / Save as PDF')),
-                PopupMenuItem(value: 'pdf', child: Text('Download PDF')),
-              ],
-            ),
-        ],
-      ),
-      body: _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text('Could not load the dashboard: $_error',
-                    textAlign: TextAlign.center),
+            if (s != null && !phone) ...[
+              IconButton(
+                tooltip: 'Copy report',
+                onPressed: () => _copyReport(s),
+                icon: const Icon(Icons.copy_all_outlined),
               ),
-            )
-          : s == null
-              ? const Center(child: CircularProgressIndicator())
-              : Align(
-                  alignment: Alignment.topCenter,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1000),
-                    child: ListView(
-                      padding: EdgeInsets.all(pad),
-                      children: [
-                        for (final g in _groups(s)) _groupView(g),
-                        _InsightsCard(items: _insights(s)),
-                      ],
-                    ),
-                  ),
+              IconButton(
+                tooltip: 'Print / Save as PDF',
+                onPressed: () => _printReport(s),
+                icon: const Icon(Icons.print_outlined),
+              ),
+              IconButton(
+                tooltip: 'Download PDF',
+                onPressed: () => _downloadPdf(s),
+                icon: const Icon(Icons.picture_as_pdf_outlined),
+              ),
+            ],
+            // On phones the three report actions share one menu.
+            if (s != null && phone)
+              PopupMenuButton<String>(
+                tooltip: 'Report options',
+                icon: const Icon(Icons.more_vert),
+                onSelected: (v) {
+                  if (v == 'copy') _copyReport(s);
+                  if (v == 'print') _printReport(s);
+                  if (v == 'pdf') _downloadPdf(s);
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'copy', child: Text('Copy report')),
+                  PopupMenuItem(
+                      value: 'print', child: Text('Print / Save as PDF')),
+                  PopupMenuItem(value: 'pdf', child: Text('Download PDF')),
+                ],
+              ),
+          ],
+          bottom: s == null
+              ? null
+              : TabBar(
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
+                  tabs: [for (final t in _tabNames) Tab(text: t)],
                 ),
+        ),
+        body: _error != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text('Could not load the dashboard: $_error',
+                      textAlign: TextAlign.center),
+                ),
+              )
+            : s == null
+                ? const Center(child: CircularProgressIndicator())
+                : TabBarView(
+                    children: [
+                      for (final g in _groups(s)) _page(_groupView(g)),
+                      _page(_InsightsCard(items: _insights(s))),
+                    ],
+                  ),
+      ),
+    );
+  }
+
+  /// One tab: centered, scrollable, with a comfortable maximum width.
+  Widget _page(Widget child) {
+    final phone = MediaQuery.of(context).size.width < 600;
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1000),
+        child: ListView(
+          padding: EdgeInsets.fromLTRB(
+              phone ? 16 : 24, phone ? 18 : 24, phone ? 16 : 24, 40),
+          children: [child],
+        ),
+      ),
     );
   }
 
   Widget _groupView(_Group g) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 28),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(g.title,
-              style: const TextStyle(
-                  fontWeight: FontWeight.w800, fontSize: 18, color: AppColors.navy)),
-          const SizedBox(height: 3),
-          Text(g.subtitle,
-              style: const TextStyle(color: AppColors.muted, fontSize: 13)),
-          const SizedBox(height: 14),
-          LayoutBuilder(builder: (context, c) {
-            // 2 cards per row on phones, 4 on wide screens.
-            final cols = c.maxWidth >= 860 ? 4 : (c.maxWidth >= 560 ? 3 : 2);
-            const gap = 12.0;
-            final w = (c.maxWidth - gap * (cols - 1)) / cols;
-            return Wrap(
-              spacing: gap,
-              runSpacing: gap,
-              children: [
-                for (final k in g.kpis)
-                  SizedBox(
-                    width: w,
-                    child: _StatCard(icon: k.icon, label: k.label, value: k.value),
-                  ),
-              ],
-            );
-          }),
-          for (final n in g.notes) ...[
-            const SizedBox(height: 10),
-            Text(n, style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
-          ],
-          const SizedBox(height: 14),
-          LayoutBuilder(builder: (context, c) {
-            final twoCols = c.maxWidth >= 780;
-            const gap = 14.0;
-            final w = twoCols ? (c.maxWidth - gap) / 2 : c.maxWidth;
-            return Wrap(
-              spacing: gap,
-              runSpacing: gap,
-              children: [
-                for (final ch in g.charts)
-                  SizedBox(
-                    width: w,
-                    child: ChartCard(
-                      title: ch.title,
-                      kind: ch.kind,
-                      empty: ch.empty,
-                      rows: [
-                        for (final r in ch.rows)
-                          ChartRow(r.label, r.value, r.text)
-                      ],
-                    ),
-                  ),
-              ],
-            );
-          }),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(g.title,
+            style: const TextStyle(
+                fontWeight: FontWeight.w800, fontSize: 20, color: AppColors.navy)),
+        const SizedBox(height: 4),
+        Text(g.subtitle,
+            style: const TextStyle(color: AppColors.muted, fontSize: 13.5)),
+        const SizedBox(height: 20),
+        LayoutBuilder(builder: (context, c) => _kpiGrid(g.kpis, c.maxWidth)),
+        for (final n in g.notes) ...[
+          const SizedBox(height: 10),
+          Text(n, style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
         ],
-      ),
+        const SizedBox(height: 24),
+        LayoutBuilder(builder: (context, c) => _chartGrid(g.charts, c.maxWidth)),
+      ],
     );
+  }
+
+  /// Picks how many number cards go in a row so the last row is never a lone
+  /// orphan card (6 cards become 3 + 3, 8 become 4 + 4).
+  int _kpiCols(int n, double width) {
+    final maxCols = width >= 860 ? 4 : (width >= 560 ? 3 : 2);
+    if (n <= maxCols) return n < 1 ? 1 : n;
+    var best = maxCols;
+    var bestLast = n % maxCols == 0 ? maxCols : n % maxCols;
+    for (var c = maxCols - 1; c >= 2; c--) {
+      final last = n % c == 0 ? c : n % c;
+      if (last > bestLast) {
+        best = c;
+        bestLast = last;
+      }
+    }
+    return best;
+  }
+
+  /// Number cards in even rows; a shorter last row stretches to full width.
+  Widget _kpiGrid(List<_Kpi> kpis, double width) {
+    const gap = 12.0;
+    final cols = _kpiCols(kpis.length, width);
+    final rows = <Widget>[];
+    for (var i = 0; i < kpis.length; i += cols) {
+      final chunk = kpis.skip(i).take(cols).toList();
+      rows.add(Padding(
+        padding: EdgeInsets.only(top: i == 0 ? 0 : gap),
+        child: Row(
+          children: [
+            for (var j = 0; j < chunk.length; j++) ...[
+              if (j > 0) const SizedBox(width: gap),
+              Expanded(
+                child: _StatCard(
+                    icon: chunk[j].icon,
+                    label: chunk[j].label,
+                    value: chunk[j].value),
+              ),
+            ],
+          ],
+        ),
+      ));
+    }
+    return Column(children: rows);
+  }
+
+  Widget _chartCard(_Chart ch) => ChartCard(
+        title: ch.title,
+        kind: ch.kind,
+        empty: ch.empty,
+        rows: [for (final r in ch.rows) ChartRow(r.label, r.value, r.text)],
+      );
+
+  /// Charts two per row on wide screens, each pair the same height; one per
+  /// row on narrow screens. A lone last chart spans the full width.
+  Widget _chartGrid(List<_Chart> charts, double width) {
+    const gap = 14.0;
+    if (width < 780) {
+      return Column(children: [
+        for (final ch in charts)
+          Padding(
+              padding: const EdgeInsets.only(bottom: gap), child: _chartCard(ch)),
+      ]);
+    }
+    final rows = <Widget>[];
+    for (var i = 0; i < charts.length; i += 2) {
+      final b = i + 1 < charts.length ? charts[i + 1] : null;
+      rows.add(Padding(
+        padding: const EdgeInsets.only(bottom: gap),
+        child: b == null
+            ? _chartCard(charts[i])
+            : IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: _chartCard(charts[i])),
+                    const SizedBox(width: gap),
+                    Expanded(child: _chartCard(b)),
+                  ],
+                ),
+              ),
+      ));
+    }
+    return Column(children: rows);
   }
 }
 

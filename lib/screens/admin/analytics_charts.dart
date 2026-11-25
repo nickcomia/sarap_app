@@ -51,7 +51,7 @@ class ChartCard extends StatelessWidget {
     } else {
       switch (kind) {
         case ChartKind.bars:
-          body = _Bars(rows: rows, phone: phone);
+          body = _Bars(rows: rows.take(6).toList(), phone: phone);
           break;
         case ChartKind.columns:
           body = SizedBox(
@@ -78,14 +78,17 @@ class ChartCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.card,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: AppShadows.soft,
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(title,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-          const SizedBox(height: 14),
+              style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                  color: AppColors.navy)),
+          const SizedBox(height: 16),
           body,
         ],
       ),
@@ -204,7 +207,7 @@ class _ColumnsPainter extends CustomPainter {
         topLeft: const Radius.circular(6),
         topRight: const Radius.circular(6),
       );
-      canvas.drawRRect(rect, Paint()..color = _palette[i % 2 == 0 ? 0 : 1]);
+      canvas.drawRRect(rect, Paint()..color = _palette[0]);
       _drawText(canvas, r.text, slot * i + slot / 2, top + chartH - h - 2,
           size: 11,
           color: AppColors.navy,
@@ -316,8 +319,8 @@ class _Donut extends StatelessWidget {
     final total = slices.fold<double>(0, (a, r) => a + r.value.toDouble());
 
     final ring = SizedBox(
-      width: 150,
-      height: 150,
+      width: 130,
+      height: 130,
       child: CustomPaint(painter: _DonutPainter(slices, total)),
     );
 
@@ -352,15 +355,10 @@ class _Donut extends StatelessWidget {
       ],
     );
 
-    return LayoutBuilder(builder: (context, c) {
-      if (c.maxWidth >= 380) {
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [ring, const SizedBox(width: 18), Expanded(child: legend)],
-        );
-      }
-      return Column(children: [ring, const SizedBox(height: 14), legend]);
-    });
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [ring, const SizedBox(width: 18), Expanded(child: legend)],
+    );
   }
 }
 
@@ -371,7 +369,7 @@ class _DonutPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    const stroke = 26.0;
+    const stroke = 22.0;
     final center = Offset(size.width / 2, size.height / 2);
     final radius = math.min(size.width, size.height) / 2 - stroke / 2;
     final rect = Rect.fromCircle(center: center, radius: radius);

@@ -392,16 +392,36 @@ class _OverviewPageState extends State<_OverviewPage> {
         return ChartRow(m['name'].toString(), c, '$c');
       }).toList();
 
-  /// Two charts per row on wide screens, one per row on narrow ones.
+  /// Two charts per row on wide screens (each pair the same height), one per
+  /// row on narrow ones.
   Widget _grid(List<Widget> items) => LayoutBuilder(builder: (context, c) {
-        final two = c.maxWidth >= 780;
         const gap = 14.0;
-        final w = two ? (c.maxWidth - gap) / 2 : c.maxWidth;
-        return Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: [for (final i in items) SizedBox(width: w, child: i)],
-        );
+        if (c.maxWidth < 780) {
+          return Column(children: [
+            for (final i in items)
+              Padding(padding: const EdgeInsets.only(bottom: gap), child: i)
+          ]);
+        }
+        final rows = <Widget>[];
+        for (var i = 0; i < items.length; i += 2) {
+          final b = i + 1 < items.length ? items[i + 1] : null;
+          rows.add(Padding(
+            padding: const EdgeInsets.only(bottom: gap),
+            child: b == null
+                ? items[i]
+                : IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(child: items[i]),
+                        const SizedBox(width: gap),
+                        Expanded(child: b),
+                      ],
+                    ),
+                  ),
+          ));
+        }
+        return Column(children: rows);
       });
 
   @override
