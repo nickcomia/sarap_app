@@ -48,6 +48,26 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
     'Dairy-free',
   ];
 
+  /// Ideas shown in the "Add tag" box so the admin does not have to think of
+  /// one. Tags already on screen are left out automatically.
+  static const _suggestedDietary = [
+    'Vegan',
+    'Pescatarian',
+    'Low sugar',
+    'Sugar-free',
+    'Low sodium',
+    'Low fat',
+    'Low carb',
+    'High protein',
+    'Keto',
+    'Nut-free',
+    'Egg-free',
+    'Soy-free',
+    'Shellfish-free',
+    'Lactose-free',
+    'Diabetic-friendly',
+  ];
+
   bool get _isEdit => widget.item != null;
 
   // Show the usual options plus anything already saved on this item.
@@ -96,29 +116,39 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
     super.dispose();
   }
 
-  /// Asks for a new dietary tag and turns it on for this item.
+  /// Opens the "Add tag" box (suggestions + typing) and turns every chosen
+  /// tag on for this item.
   Future<void> _addDietaryTag() async {
-    final raw = await showDialog<String>(
+    final picked = await showDialog<List<String>>(
       context: context,
-      builder: (_) => const _NewTagDialog(),
+      builder: (_) => _NewTagDialog(
+        existing: _dietaryOptions,
+        suggestions: _suggestedDietary,
+      ),
     );
-    if (raw == null) return;
+    if (picked == null || picked.isEmpty) return;
 
-    final tag = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
-    if (tag.isEmpty) return;
-
-    // Same name as an existing chip (any capitalization): just switch it on.
-    for (final o in _dietaryOptions) {
-      if (o.toLowerCase() == tag.toLowerCase()) {
-        setState(() => _dietaryTags.add(o));
-        return;
-      }
-    }
-
-    final nice = tag[0].toUpperCase() + tag.substring(1);
     setState(() {
-      _extraDietary.add(nice);
-      _dietaryTags.add(nice);
+      for (final raw in picked) {
+        final tag = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
+        if (tag.isEmpty) continue;
+
+        // Same name as an existing chip (any capitalization): switch it on.
+        String? match;
+        for (final o in _dietaryOptions) {
+          if (o.toLowerCase() == tag.toLowerCase()) {
+            match = o;
+            break;
+          }
+        }
+        if (match != null) {
+          _dietaryTags.add(match);
+        } else {
+          final nice = tag[0].toUpperCase() + tag.substring(1);
+          _extraDietary.add(nice);
+          _dietaryTags.add(nice);
+        }
+      }
     });
   }
 
@@ -371,10 +401,13 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
   }
 }
 
-/// Small dialog that asks for the name of a new dietary tag. It owns its
+/// Dialog for adding dietary tags: tap one or more suggestions, and/or type
+/// your own. Returns the chosen tag names, or null on cancel. It owns its
 /// text field, so nothing needs cleaning up by the screen.
 class _NewTagDialog extends StatefulWidget {
-  const _NewTagDialog();
+  final List<String> existing; // tags already shown on the screen
+  final List<String> suggestions;
+  const _NewTagDialog({required this.existing, required this.suggestions});
 
   @override
   State<_NewTagDialog> createState() => _NewTagDialogState();
@@ -382,6 +415,7 @@ class _NewTagDialog extends StatefulWidget {
 
 class _NewTagDialogState extends State<_NewTagDialog> {
   final _ctrl = TextEditingController();
+  final Set<String> _picked = {};
   String? _error;
 
   @override
@@ -390,42 +424,100 @@ class _NewTagDialogState extends State<_NewTagDialog> {
     super.dispose();
   }
 
+  List<String> get _available => [
+        for (final s in widget.suggestions)
+          if (!widget.existing.any((e) => e.toLowerCase() == s.toLowerCase())) s
+      ];
+
+  int get _count => _picked.length + (_ctrl.text.trim().isEmpty ? 0 : 1);
+
   void _submit() {
-    final v = _ctrl.text.trim();
-    if (v.isEmpty) {
-      setState(() => _error = 'Type a tag name');
-      return;
-    }
-    if (RegExp(r'[,;|]').hasMatch(v)) {
+    final typed = _ctrl.text.trim();
+    if (RegExp(r'[,;|]').hasMatch(typed)) {
       setState(() => _error = 'Do not use commas, semicolons or "|"');
       return;
     }
-    Navigator.of(context).pop(v);
+    final result = [..._picked, if (typed.isNotEmpty) typed];
+    if (result.isEmpty) {
+      setState(() => _error = 'Pick a suggestion or type a tag name');
+      return;
+    }
+    Navigator.of(context).pop(result);
   }
 
   @override
   Widget build(BuildContext context) {
+    final available = _available;
     return AlertDialog(
-      title: const Text('Add a dietary tag'),
-      content: TextField(
-        controller: _ctrl,
-        autofocus: true,
-        maxLength: 24,
-        textCapitalization: TextCapitalization.sentences,
-        decoration: InputDecoration(
-          hintText: 'e.g. Low sugar',
-          errorText: _error,
+      title: const Text('Add dietary tags'),
+      content: SizedBox(
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (available.isNotEmpty) ...[
+                const Text('Suggestions',
+                    style:
+                        TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                const SizedBox(height: 4),
+                const Text('Tap the ones that apply to this dish.',
+                    style: TextStyle(color: AppColors.muted, fontSize: 12)),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final s in available)
+                      FilterChip(
+                        label: Text(s),
+                        selected: _picked.contains(s),
+                        showCheckmark: false,
+                        backgroundColor: AppColors.chipBg,
+                        selectedColor: AppColors.primary,
+                        side: BorderSide.none,
+                        labelStyle: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: _picked.contains(s)
+                              ? Colors.white
+                              : AppColors.navy,
+                        ),
+                        onSelected: (v) => setState(() {
+                          v ? _picked.add(s) : _picked.remove(s);
+                          _error = null;
+                        }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+              ],
+              const Text('Or type your own',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _ctrl,
+                maxLength: 24,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: InputDecoration(
+                  hintText: 'e.g. Low sugar',
+                  errorText: _error,
+                ),
+                onChanged: (_) => setState(() => _error = null),
+                onSubmitted: (_) => _submit(),
+              ),
+            ],
+          ),
         ),
-        onChanged: (_) {
-          if (_error != null) setState(() => _error = null);
-        },
-        onSubmitted: (_) => _submit(),
       ),
       actions: [
         TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel')),
-        TextButton(onPressed: _submit, child: const Text('Add')),
+        TextButton(
+            onPressed: _submit,
+            child: Text(_count > 1 ? 'Add ($_count)' : 'Add')),
       ],
     );
   }
