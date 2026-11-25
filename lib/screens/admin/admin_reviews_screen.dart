@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../services/admin_service.dart';
 import '../../theme.dart';
@@ -58,13 +59,13 @@ class _AdminReviewsScreenState extends State<AdminReviewsScreen> {
     }
   }
 
+  /// Simple reason box, used for a plain reject (no penalty).
   Future<String?> _askReason({
     required String title,
     required String body,
     required String confirm,
-    String initial = '',
   }) {
-    final c = TextEditingController(text: initial);
+    final c = TextEditingController();
     return showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -80,7 +81,7 @@ class _AdminReviewsScreenState extends State<AdminReviewsScreen> {
               maxLines: 2,
               autofocus: true,
               decoration: const InputDecoration(
-                hintText: 'Reason',
+                hintText: 'Reason (optional)',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -109,7 +110,8 @@ class _AdminReviewsScreenState extends State<AdminReviewsScreen> {
   Future<void> _reject(Map<String, dynamic> r) async {
     final reason = await _askReason(
       title: 'Reject this review?',
-      body: 'The review will not be shown. The user is not penalised.',
+      body: 'The review will not be shown to other diners. '
+          'The user is not penalised.',
       confirm: 'Reject',
     );
     if (reason == null) return;
@@ -120,22 +122,37 @@ class _AdminReviewsScreenState extends State<AdminReviewsScreen> {
     });
   }
 
+  /// How many strikes the reviewer has now (null if it could not be read).
+  Future<int?> _strikesOf(String uid) async {
+    try {
+      final d =
+          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final v = d.data()?['strikes'];
+      return v is num ? v.toInt() : 0;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _rejectViolation(Map<String, dynamic> r) async {
-    final reason = await _askReason(
-      title: 'Reject for violation?',
-      body: 'The review is rejected and ${r['userName'] ?? 'the user'} '
-          'gets a strike: warning, then a 3-day ban, a 7-day ban, and '
-          'finally the account is disabled.',
-      confirm: 'Reject + strike',
-      initial: 'Hateful or abusive language',
-    );
-    if (reason == null) return;
-    final id = r['id'] as String;
     final uid = (r['userId'] ?? '').toString();
     if (uid.isEmpty) {
       _toast('This review has no userId, so no strike can be applied.');
       return;
     }
+    final strikes = await _strikesOf(uid);
+    if (!mounted) return;
+
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (_) => _ViolationDialog(
+        userName: (r['userName'] ?? 'This user').toString(),
+        restaurantName: (r['restaurantName'] ?? 'the restaurant').toString(),
+        strikes: strikes,
+      ),
+    );
+    if (reason == null) return;
+    final id = r['id'] as String;
     await _run(id, () {
       return AdminService.rejectForViolation(
           reviewId: id, userId: uid, reason: reason);
@@ -284,19 +301,226 @@ class _AdminReviewsScreenState extends State<AdminReviewsScreen> {
                 OutlinedButton.icon(
                   onPressed: () => _reject(r),
                   icon: const Icon(Icons.close, size: 18),
-                  label: const Text('Reject'),
+                  label: const Text('Reject (no penalty)'),
                 ),
                 OutlinedButton.icon(
                   onPressed: () => _rejectViolation(r),
                   style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.red.shade700),
                   icon: const Icon(Icons.gavel, size: 18),
-                  label: const Text('Reject for violation'),
+                  label: const Text('Reject + strike'),
                 ),
               ],
             ),
         ],
       ),
+    );
+  }
+}
+
+/// Confirmation for "Reject + strike". Shows the user's current strikes,
+/// exactly what this strike will do, and the four penalty steps with the
+/// current one highlighted. Returns the reason text, or null on cancel.
+class _ViolationDialog extends StatefulWidget {
+  final String userName;
+  final String restaurantName;
+  final int? strikes; // current strikes, null when it could not be read
+  const _ViolationDialog({
+    required this.userName,
+    required this.restaurantName,
+    required this.strikes,
+  });
+
+  @override
+  State<_ViolationDialog> createState() => _ViolationDialogState();
+}
+
+class _ViolationDialogState extends State<_ViolationDialog> {
+  static const _reasons = [
+    'Hateful or abusive language',
+    'Spam or advertising',
+    'Fake or off-topic review',
+    'Other',
+  ];
+  static const _steps = [
+    'Warning',
+    '3-day review ban',
+    '7-day review ban',
+    'Account disabled',
+  ];
+
+  String _reason = _reasons.first;
+  final _note = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
+  /// The step (1 to 4) this strike will trigger, or null if unknown.
+  int? get _next {
+    final s = widget.strikes;
+    if (s == null) return null;
+    final n = s + 1;
+    return n > 4 ? 4 : n;
+  }
+
+  void _submit() {
+    final note = _note.text.trim();
+    if (_reason == 'Other' && note.isEmpty) {
+      setState(() => _error = 'Please describe the reason');
+      return;
+    }
+    final result = note.isEmpty
+        ? _reason
+        : (_reason == 'Other' ? note : '$_reason: $note');
+    Navigator.of(context).pop(result);
+  }
+
+  Widget _ladder(int? current) {
+    return Column(
+      children: [
+        for (var i = 0; i < _steps.length; i++)
+          Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: current == i + 1 ? AppColors.chipSelectedBg : null,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                  color: current == i + 1
+                      ? AppColors.primary
+                      : AppColors.border),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  current != null && i + 1 < current
+                      ? Icons.check_circle
+                      : Icons.circle_outlined,
+                  size: 16,
+                  color: current == i + 1
+                      ? AppColors.primaryDark
+                      : AppColors.muted,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text('Strike ${i + 1}: ${_steps[i]}',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: current == i + 1
+                              ? FontWeight.w800
+                              : FontWeight.w500,
+                          color: current == i + 1
+                              ? AppColors.navy
+                              : AppColors.muted)),
+                ),
+                if (current == i + 1)
+                  const Text('This review',
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.primaryDark)),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.strikes;
+    final next = _next;
+
+    final String summary;
+    if (s == null || next == null) {
+      summary = 'Rejecting adds one strike to ${widget.userName}. '
+          'The penalty grows with each strike.';
+    } else {
+      summary = '${widget.userName} has $s ${s == 1 ? 'strike' : 'strikes'} '
+          'so far. Rejecting this review adds strike $next: '
+          '${_steps[next - 1].toLowerCase()}.';
+    }
+
+    return AlertDialog(
+      title: const Text('Reject and add a strike'),
+      content: SizedBox(
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                  'Review of ${widget.restaurantName} by ${widget.userName}. '
+                  'The review will be hidden.',
+                  style: const TextStyle(
+                      fontSize: 12.5, color: AppColors.muted, height: 1.4)),
+              const SizedBox(height: 12),
+              Text(summary,
+                  style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.navy,
+                      height: 1.4)),
+              const SizedBox(height: 14),
+              _ladder(next),
+              const SizedBox(height: 12),
+              const Text('Reason',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+              const SizedBox(height: 6),
+              DropdownButtonFormField<String>(
+                value: _reason,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                items: [
+                  for (final r in _reasons)
+                    DropdownMenuItem(value: r, child: Text(r)),
+                ],
+                onChanged: (v) => setState(() {
+                  _reason = v ?? _reason;
+                  _error = null;
+                }),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _note,
+                maxLines: 2,
+                onChanged: (_) {
+                  if (_error != null) setState(() => _error = null);
+                },
+                decoration: InputDecoration(
+                  hintText: _reason == 'Other'
+                      ? 'Describe the reason'
+                      : 'Add a note (optional)',
+                  errorText: _error,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel')),
+        ElevatedButton(
+          onPressed: _submit,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red.shade700,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(0, 44),
+          ),
+          child: const Text('Reject + add strike'),
+        ),
+      ],
     );
   }
 }

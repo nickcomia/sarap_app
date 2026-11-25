@@ -25,6 +25,10 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
 
   final Set<String> _mealTypes = {};
   final Set<String> _dietaryTags = {};
+
+  /// Tags the administrator typed in on this screen. They stay visible as
+  /// chips (even when switched off) until the screen is closed.
+  final List<String> _extraDietary = [];
   bool _saving = false;
   int? _suggestedCalories;
 
@@ -49,8 +53,16 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
   // Show the usual options plus anything already saved on this item.
   List<String> get _mealTypeOptions =>
       [..._baseMealTypes, ..._mealTypes.where((m) => !_baseMealTypes.contains(m))];
-  List<String> get _dietaryOptions =>
-      [..._baseDietary, ..._dietaryTags.where((d) => !_baseDietary.contains(d))];
+
+  // The usual tags, then tags typed in on this screen, then any other tag
+  // already saved on the item (for example one added earlier).
+  List<String> get _dietaryOptions {
+    final out = <String>[..._baseDietary];
+    for (final t in [..._extraDietary, ..._dietaryTags]) {
+      if (!out.any((o) => o.toLowerCase() == t.toLowerCase())) out.add(t);
+    }
+    return out;
+  }
 
   @override
   void initState() {
@@ -82,6 +94,58 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
     _caloriesCtrl.dispose();
     _imageCtrl.dispose();
     super.dispose();
+  }
+
+  /// Asks for a new dietary tag and turns it on for this item.
+  Future<void> _addDietaryTag() async {
+    final raw = await showDialog<String>(
+      context: context,
+      builder: (_) => const _NewTagDialog(),
+    );
+    if (raw == null) return;
+
+    final tag = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (tag.isEmpty) return;
+
+    // Same name as an existing chip (any capitalization): just switch it on.
+    for (final o in _dietaryOptions) {
+      if (o.toLowerCase() == tag.toLowerCase()) {
+        setState(() => _dietaryTags.add(o));
+        return;
+      }
+    }
+
+    final nice = tag[0].toUpperCase() + tag.substring(1);
+    setState(() {
+      _extraDietary.add(nice);
+      _dietaryTags.add(nice);
+    });
+  }
+
+  Widget _addTagChip() {
+    return InkWell(
+      onTap: _addDietaryTag,
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: AppColors.primary),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.add, size: 16, color: AppColors.primaryDark),
+            SizedBox(width: 4),
+            Text('Add tag',
+                style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: AppColors.primaryDark)),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _save() async {
@@ -263,20 +327,28 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
                 const SizedBox(height: 20),
                 const Text('Dietary tags',
                     style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                const SizedBox(height: 4),
+                const Text(
+                    'Tap a tag to switch it on or off. Use "Add tag" for one that is not listed.',
+                    style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
-                  children: _dietaryOptions.map((d) {
-                    final selected = _dietaryTags.contains(d);
-                    return SarapChip(
-                      label: d,
-                      selected: selected,
-                      onTap: () => setState(() {
-                        selected ? _dietaryTags.remove(d) : _dietaryTags.add(d);
-                      }),
-                    );
-                  }).toList(),
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    ..._dietaryOptions.map((d) {
+                      final selected = _dietaryTags.contains(d);
+                      return SarapChip(
+                        label: d,
+                        selected: selected,
+                        onTap: () => setState(() {
+                          selected ? _dietaryTags.remove(d) : _dietaryTags.add(d);
+                        }),
+                      );
+                    }),
+                    _addTagChip(),
+                  ],
                 ),
                 const SizedBox(height: 28),
                 ElevatedButton(
@@ -295,6 +367,66 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Small dialog that asks for the name of a new dietary tag. It owns its
+/// text field, so nothing needs cleaning up by the screen.
+class _NewTagDialog extends StatefulWidget {
+  const _NewTagDialog();
+
+  @override
+  State<_NewTagDialog> createState() => _NewTagDialogState();
+}
+
+class _NewTagDialogState extends State<_NewTagDialog> {
+  final _ctrl = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final v = _ctrl.text.trim();
+    if (v.isEmpty) {
+      setState(() => _error = 'Type a tag name');
+      return;
+    }
+    if (RegExp(r'[,;|]').hasMatch(v)) {
+      setState(() => _error = 'Do not use commas, semicolons or "|"');
+      return;
+    }
+    Navigator.of(context).pop(v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add a dietary tag'),
+      content: TextField(
+        controller: _ctrl,
+        autofocus: true,
+        maxLength: 24,
+        textCapitalization: TextCapitalization.sentences,
+        decoration: InputDecoration(
+          hintText: 'e.g. Low sugar',
+          errorText: _error,
+        ),
+        onChanged: (_) {
+          if (_error != null) setState(() => _error = null);
+        },
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel')),
+        TextButton(onPressed: _submit, child: const Text('Add')),
+      ],
     );
   }
 }
