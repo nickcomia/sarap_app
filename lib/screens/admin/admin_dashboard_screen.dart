@@ -482,14 +482,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ),
       );
 
+  /// Same even-row rule as the on-screen cards (6 become 3 + 3, 8 become
+  /// 4 + 4); a shorter last row stretches to the full width.
   List<pw.Widget> _pdfKpiRows(List<_Kpi> kpis) {
+    final cols = _kpiCols(kpis.length, 900);
     final rows = <pw.Widget>[];
-    for (var i = 0; i < kpis.length; i += 4) {
-      final chunk = kpis.skip(i).take(4).toList();
+    for (var i = 0; i < kpis.length; i += cols) {
+      final chunk = kpis.skip(i).take(cols).toList();
       rows.add(pw.Row(children: [
-        for (var j = 0; j < 4; j++) ...[
+        for (var j = 0; j < chunk.length; j++) ...[
           if (j > 0) pw.SizedBox(width: 8),
-          j < chunk.length ? _pdfKpi(chunk[j]) : pw.Expanded(child: pw.SizedBox()),
+          _pdfKpi(chunk[j]),
         ],
       ]));
       rows.add(pw.SizedBox(height: 8));
@@ -497,11 +500,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     return rows;
   }
 
+  /// Keeps its children on one page. A Table row is never split, so if the
+  /// block does not fit in the space left, the whole block moves to the next
+  /// page instead of being cut in half.
+  pw.Widget _keep(List<pw.Widget> children) => pw.Table(
+        columnWidths: {0: const pw.FlexColumnWidth()},
+        children: [
+          pw.TableRow(children: [
+            pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: children),
+          ]),
+        ],
+      );
+
   pw.Widget _pdfBars(_Chart c) {
     final maxValue = c.rows.isEmpty
         ? 1.0
         : c.rows.map((e) => e.value.toDouble()).reduce((a, b) => a > b ? a : b);
-    const trackWidth = 220.0;
+    const trackWidth = 200.0;
     return pw.Container(
       margin: const pw.EdgeInsets.only(bottom: 10),
       padding: const pw.EdgeInsets.all(12),
@@ -523,7 +540,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   crossAxisAlignment: pw.CrossAxisAlignment.center,
                   children: [
                     pw.SizedBox(
-                      width: 150,
+                      width: 165,
                       child: pw.Text(r.label,
                           maxLines: 1,
                           style: pw.TextStyle(fontSize: 9, color: _ink)),
@@ -533,21 +550,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       height: 7,
                       decoration: pw.BoxDecoration(
                         color: _track,
-                        borderRadius: pw.BorderRadius.circular(4),
+                        borderRadius: pw.BorderRadius.circular(3.5),
                       ),
-                      child: pw.Align(
-                        alignment: pw.Alignment.centerLeft,
-                        child: pw.Container(
-                          width: maxValue == 0
-                              ? 0
-                              : (trackWidth * r.value.toDouble() / maxValue),
-                          height: 7,
-                          decoration: pw.BoxDecoration(
-                            color: _brand,
-                            borderRadius: pw.BorderRadius.circular(4),
-                          ),
-                        ),
-                      ),
+                      // A value of zero draws nothing; any other value gets at
+                      // least a dot, so a tiny bar never renders as a glitch.
+                      child: (maxValue == 0 || r.value <= 0)
+                          ? null
+                          : pw.Align(
+                              alignment: pw.Alignment.centerLeft,
+                              child: pw.Container(
+                                width: (trackWidth * r.value.toDouble() / maxValue)
+                                    .clamp(7.0, trackWidth)
+                                    .toDouble(),
+                                height: 7,
+                                decoration: pw.BoxDecoration(
+                                  color: _brand,
+                                  borderRadius: pw.BorderRadius.circular(3.5),
+                                ),
+                              ),
+                            ),
                     ),
                     pw.SizedBox(width: 8),
                     pw.Text(r.text,
@@ -620,30 +641,46 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     ];
 
     for (final g in _groups(s)) {
-      body.add(_pdfGroupTitle(g.title, g.subtitle));
-      body.addAll(_pdfKpiRows(g.kpis));
-      for (final c in g.charts) {
-        body.add(_pdfBars(c));
-      }
-      for (final n in g.notes) {
-        body.add(pw.Text(n, style: pw.TextStyle(fontSize: 8.5, color: _muted)));
+      // Heading, number tiles and the first chart stay together, so a heading
+      // is never left alone at the bottom of a page.
+      final head = <pw.Widget>[
+        _pdfGroupTitle(g.title, g.subtitle),
+        ..._pdfKpiRows(g.kpis),
+        for (final n in g.notes)
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(bottom: 8),
+            child: pw.Text(n, style: pw.TextStyle(fontSize: 8.5, color: _muted)),
+          ),
+      ];
+      if (g.charts.isEmpty) {
+        body.add(_keep(head));
+      } else {
+        body.add(_keep([...head, _pdfBars(g.charts.first)]));
+        for (final c in g.charts.skip(1)) {
+          body.add(_keep([_pdfBars(c)]));
+        }
       }
     }
 
-    body.add(_pdfGroupTitle('Insights & suggested actions',
-        'Rule-based suggestions generated from the numbers above.'));
-    for (final i in _insights(s)) {
-      body.add(pw.Padding(
-        padding: const pw.EdgeInsets.only(bottom: 5),
-        child: pw.Row(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text('•  ', style: pw.TextStyle(fontSize: 10, color: _brand)),
-            pw.Expanded(
-                child: pw.Text(i, style: pw.TextStyle(fontSize: 10, color: _ink))),
-          ],
-        ),
-      ));
+    final insights = _insights(s);
+    pw.Widget bullet(String i) => pw.Padding(
+          padding: const pw.EdgeInsets.only(bottom: 5),
+          child: pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text('•  ', style: pw.TextStyle(fontSize: 10, color: _brand)),
+              pw.Expanded(
+                  child: pw.Text(i, style: pw.TextStyle(fontSize: 10, color: _ink))),
+            ],
+          ),
+        );
+    body.add(_keep([
+      _pdfGroupTitle('Insights & suggested actions',
+          'Rule-based suggestions generated from the numbers above.'),
+      for (final i in insights.take(2)) bullet(i),
+    ]));
+    for (final i in insights.skip(2)) {
+      body.add(bullet(i));
     }
 
     doc.addPage(

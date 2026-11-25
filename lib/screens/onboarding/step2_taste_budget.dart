@@ -15,6 +15,8 @@ class _Step2TasteBudgetState extends State<Step2TasteBudget> {
 
   static const spicinessLabels = ['None', 'Mild', 'Medium', 'Hot', 'Very Spicy'];
   static const sweetnessLabels = ['None', 'Light', 'Medium', 'Sweet', 'Very Sweet'];
+
+  /// Always shown, even before any menu has loaded or when offline.
   static const dietaryRestrictions = [
     'Vegetarian',
     'No pork',
@@ -22,6 +24,54 @@ class _Step2TasteBudgetState extends State<Step2TasteBudget> {
     'Gluten-free',
     'Dairy-free',
   ];
+
+  /// Extra tags the admin added to dishes (for example "Low sugar").
+  List<String> _menuTags = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMenuTags();
+  }
+
+  Future<void> _loadMenuTags() async {
+    final tags = await AppState.instance.loadDietaryTagOptions();
+    if (!mounted) return;
+    setState(() => _menuTags = tags);
+  }
+
+  static String _k(String s) => s.trim().toLowerCase();
+
+  /// Fixed list first, then tags found on dishes, then anything the diner
+  /// already picked that is in neither (so it can still be switched off).
+  /// Names that differ only by capital letters are shown once.
+  List<String> get _options {
+    final seen = <String>{};
+    final out = <String>[];
+    void add(String t) {
+      final k = _k(t);
+      if (k.isEmpty || !seen.add(k)) return;
+      out.add(t.trim());
+    }
+
+    dietaryRestrictions.forEach(add);
+    _menuTags.forEach(add);
+    profile.dietaryRestrictions.forEach(add);
+    return out;
+  }
+
+  bool _isSelected(String o) =>
+      profile.dietaryRestrictions.any((d) => _k(d) == _k(o));
+
+  void _toggle(String o) {
+    setState(() {
+      if (_isSelected(o)) {
+        profile.dietaryRestrictions.removeWhere((d) => _k(d) == _k(o));
+      } else {
+        profile.dietaryRestrictions.add(o);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -73,16 +123,11 @@ class _Step2TasteBudgetState extends State<Step2TasteBudget> {
           Wrap(
             spacing: 10,
             runSpacing: 10,
-            children: dietaryRestrictions.map((o) {
-              final selected = profile.dietaryRestrictions.contains(o);
+            children: _options.map((o) {
               return SarapChip(
                 label: o,
-                selected: selected,
-                onTap: () => setState(() {
-                  selected
-                      ? profile.dietaryRestrictions.remove(o)
-                      : profile.dietaryRestrictions.add(o);
-                }),
+                selected: _isSelected(o),
+                onTap: () => _toggle(o),
               );
             }).toList(),
           ),

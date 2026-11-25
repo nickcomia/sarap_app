@@ -676,6 +676,28 @@ class AppState extends ChangeNotifier {
     _eligibleAt = null;
   }
 
+  /// Dietary tags found on the dishes the meal planner can use (visible,
+  /// local, valid price and calories). Used by onboarding so diners can pick
+  /// tags the admin added. Returns an empty list if menus can't be loaded.
+  Future<List<String>> loadDietaryTagOptions() async {
+    try {
+      final menu = await _loadEligibleMenu();
+      if (menu == null) return [];
+      final byKey = <String, String>{};
+      for (final item in menu.items) {
+        for (final tag in item.dietaryTags) {
+          final t = tag.trim();
+          if (t.isEmpty) continue;
+          byKey.putIfAbsent(t.toLowerCase(), () => t);
+        }
+      }
+      return byKey.values.toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    } catch (_) {
+      return [];
+    }
+  }
+
   /// Fresh from Firestore: only restaurants that are visible AND local,
   /// and only their menu items that are available AND have a usable price
   /// and calorie value. Returns null if the data could not be loaded.

@@ -1,12 +1,12 @@
-import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../widgets/common.dart';
 import 'restaurant_detail_screen.dart';
+import 'restaurant_map_screen.dart';
 
 /// Figure 13: Home / Discovery Feed.
 /// (1) Search bar, (2) map expand button, (3) restaurant match cards
@@ -28,13 +28,10 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
     super.dispose();
   }
 
+  /// Opens the full in-app Tanauan map (pins, nearby list, routes).
   void _openFullMap() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      enableDrag: false, // lets the map handle its own drag gestures
-      backgroundColor: Colors.transparent,
-      builder: (_) => _FullMapSheet(restaurants: AppState.instance.sortedByMatch),
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const RestaurantMapScreen()),
     );
   }
 
@@ -143,10 +140,7 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
                 ),
                 const SizedBox(height: 18),
 
-                // Live map preview (tap to expand). It is created just after the
-                // feed first appears and its markers are only rebuilt when the
-                // restaurants really change, so typing in the search box no
-                // longer touches the map.
+                // Small map preview of Tanauan (tap to open the full map).
                 RepaintBoundary(
                   child: _MapPreview(
                     restaurants: state.restaurants,
@@ -279,8 +273,9 @@ class _DiscoveryFeedState extends State<DiscoveryFeed> {
   }
 }
 
-/// The small live Google Map on the feed.
-class _MapPreview extends StatefulWidget {
+/// The small, non-interactive map of Tanauan on the feed. Tapping it opens
+/// the full [RestaurantMapScreen].
+class _MapPreview extends StatelessWidget {
   final List<Restaurant> restaurants;
   final double? userLat;
   final double? userLng;
@@ -295,58 +290,51 @@ class _MapPreview extends StatefulWidget {
   });
 
   @override
-  State<_MapPreview> createState() => _MapPreviewState();
-}
-
-class _MapPreviewState extends State<_MapPreview> {
-  static const _tanauanCenter = LatLng(14.0863, 121.1497);
-
-  bool _showMap = false;
-  Set<Marker> _markers = {};
-  String _markersKey = '';
-
-  @override
-  void initState() {
-    super.initState();
-    // Let the feed draw first, then create the native map view.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(milliseconds: 250), () {
-        if (mounted) setState(() => _showMap = true);
-      });
-    });
-  }
-
-  /// Rebuilt only when a restaurant, its match % or its distance changed.
-  Set<Marker> _markersFor(List<Restaurant> list) {
-    final key = list
-        .map((r) => '${r.id}:${r.matchPercent}:${r.distanceKm.toStringAsFixed(1)}')
-        .join('|');
-    if (key != _markersKey) {
-      _markersKey = key;
-      _markers = list.map((r) {
-        return Marker(
-          markerId: MarkerId(r.id),
-          position: LatLng(r.latitude, r.longitude),
-          infoWindow: InfoWindow(
-            title: r.name,
-            snippet: '${r.matchPercent}% match • ${r.distanceKm.toStringAsFixed(1)} km',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => RestaurantDetailScreen(restaurant: r)),
-            ),
-          ),
-        );
-      }).toSet();
-    }
-    return _markers;
-  }
-
-  @override
   Widget build(BuildContext context) {
     final colors = context.colors;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final target = (widget.userLat != null && widget.userLng != null)
-        ? LatLng(widget.userLat!, widget.userLng!)
-        : _tanauanCenter;
+    final bounds = RestaurantMapScreen.cityBounds;
+
+    // Centre on the user only when they are inside Tanauan.
+    var target = RestaurantMapScreen.cityCenter;
+    LatLng? me;
+    if (userLat != null && userLng != null) {
+      final p = LatLng(userLat!, userLng!);
+      if (bounds.contains(p)) {
+        target = p;
+        me = p;
+      }
+    }
+
+    final markers = <Marker>[
+      for (final r in restaurants)
+        if (bounds.contains(LatLng(r.latitude, r.longitude)))
+          Marker(
+            point: LatLng(r.latitude, r.longitude),
+            width: 14,
+            height: 14,
+            child: Container(
+              decoration: BoxDecoration(
+                color: colors.primary,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+            ),
+          ),
+      if (me != null)
+        Marker(
+          point: me,
+          width: 16,
+          height: 16,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.blue,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+          ),
+        ),
+    ];
 
     return Container(
       decoration: BoxDecoration(
@@ -359,29 +347,38 @@ class _MapPreviewState extends State<_MapPreview> {
           height: 130,
           child: Stack(
             children: [
-              if (_showMap)
-                AbsorbPointer(
-                  child: GoogleMap(
-                    initialCameraPosition: CameraPosition(target: target, zoom: 14),
-                    markers: _markersFor(widget.restaurants),
-                    myLocationEnabled: widget.userLat != null,
-                    myLocationButtonEnabled: false,
-                    zoomControlsEnabled: false,
-                    liteModeEnabled: true,
+              IgnorePointer(
+                child: FlutterMap(
+                  options: MapOptions(
+                    initialCenter: target,
+                    initialZoom: 13,
+                    cameraConstraint: CameraConstraint.contain(bounds: bounds),
+                    interactionOptions:
+                        const InteractionOptions(flags: InteractiveFlag.none),
                   ),
-                )
-              else
-                Positioned.fill(
-                  child: Container(
-                    color: colors.card,
-                    alignment: Alignment.center,
-                    child: Icon(Icons.map_outlined, size: 30, color: colors.muted),
-                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.example.sarap_app',
+                    ),
+                    MarkerLayer(markers: markers),
+                  ],
                 ),
+              ),
               Positioned.fill(
                 child: Material(
                   color: Colors.transparent,
-                  child: InkWell(onTap: widget.onExpand),
+                  child: InkWell(onTap: onExpand),
+                ),
+              ),
+              Positioned(
+                left: 8,
+                bottom: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  color: Colors.white70,
+                  child: const Text('© OpenStreetMap contributors',
+                      style: TextStyle(fontSize: 9, color: Colors.black87)),
                 ),
               ),
               Positioned(
@@ -394,14 +391,14 @@ class _MapPreviewState extends State<_MapPreview> {
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: isDark ? null : AppShadows.soft,
                   ),
-                  child: Text('Tap to expand map',
+                  child: Text('Tap to open map',
                       style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                           color: colors.navy)),
                 ),
               ),
-              if (widget.locationDenied)
+              if (locationDenied)
                 Positioned(
                   left: 10,
                   top: 10,
@@ -420,133 +417,6 @@ class _MapPreviewState extends State<_MapPreview> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _FullMapSheet extends StatefulWidget {
-  final List<Restaurant> restaurants;
-  const _FullMapSheet({required this.restaurants});
-
-  @override
-  State<_FullMapSheet> createState() => _FullMapSheetState();
-}
-
-class _FullMapSheetState extends State<_FullMapSheet> {
-  static const _tanauanCenter = LatLng(14.0863, 121.1497);
-  final _sheetController = DraggableScrollableController();
-
-  @override
-  void dispose() {
-    _sheetController.dispose();
-    super.dispose();
-  }
-
-  Set<Marker> _buildMarkers(BuildContext context) {
-    return widget.restaurants.map((r) {
-      return Marker(
-        markerId: MarkerId(r.id),
-        position: LatLng(r.latitude, r.longitude),
-        infoWindow: InfoWindow(
-          title: r.name,
-          snippet: '${r.matchPercent}% match • ${r.distanceKm.toStringAsFixed(1)} km away',
-          onTap: () {
-            final navigator = Navigator.of(context);
-            navigator.pop();
-            navigator.push(
-              MaterialPageRoute(builder: (_) => RestaurantDetailScreen(restaurant: r)),
-            );
-          },
-        ),
-      );
-    }).toSet();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final state = AppState.instance;
-    final cameraTarget = (state.userLat != null && state.userLng != null)
-        ? LatLng(state.userLat!, state.userLng!)
-        : _tanauanCenter;
-    final colors = context.colors;
-
-    return DraggableScrollableSheet(
-      controller: _sheetController,
-      initialChildSize: 0.85,
-      maxChildSize: 0.95,
-      minChildSize: 0.5,
-      builder: (context, scrollController) {
-        return Container(
-          decoration: BoxDecoration(
-            color: colors.card,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(
-            children: [
-              // Drag handle — the only drag target for resizing the sheet,
-              // since the GoogleMap below claims pan gestures for itself.
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onVerticalDragUpdate: (details) {
-                  final newSize = _sheetController.size -
-                      details.primaryDelta! / MediaQuery.of(context).size.height;
-                  _sheetController.jumpTo(newSize.clamp(0.5, 0.95));
-                },
-                child: Column(
-                  children: [
-                    const SizedBox(height: 12),
-                    Container(
-                      width: 44,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: colors.border,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text('Nearby food spots',
-                                style: Theme.of(context).textTheme.titleLarge),
-                          ),
-                          IconButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            icon: Icon(Icons.close, color: colors.navy),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(18),
-                  child: Container(
-                    margin: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-                    child: GoogleMap(
-                      initialCameraPosition: CameraPosition(target: cameraTarget, zoom: 14),
-                      markers: _buildMarkers(context),
-                      myLocationEnabled: state.userLat != null,
-                      myLocationButtonEnabled: true,
-                      zoomControlsEnabled: true,
-                      scrollGesturesEnabled: true,
-                      zoomGesturesEnabled: true,
-                      gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-                        Factory<OneSequenceGestureRecognizer>(
-                            () => EagerGestureRecognizer()),
-                      },
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 }

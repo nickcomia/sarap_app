@@ -39,7 +39,7 @@ class ViolationOutcome {
 ///                                    strikes, bannedUntil, status, ... }
 ///   profiles/{uid}               -> onboarding + health profile fields
 ///   restaurants/{restaurantId}   -> sample Tanauan City restaurants
-///   reviews/{reviewId}           -> user reviews (pending/approved/rejected)
+///   reviews/{uid_restaurantId}   -> user reviews (pending/approved/rejected)
 ///   moderationActions/{id}       -> audit trail of warnings, bans, disables
 ///   users/{uid}/saved/{restaurantId}     -> bookmark marker docs
 ///   users/{uid}/mealPlan/{day_slot}      -> one doc per meal slot
@@ -1301,7 +1301,9 @@ class FirebaseService {
     return list;
   }
 
-  /// The signed-in user's own reviews of one restaurant (any status).
+  /// The signed-in user's own review(s) of one restaurant (any status).
+  /// Normally at most one; older data saved before the one-review rule can
+  /// have more.
   static Future<List<Review>> fetchMyReviews(String restaurantId) async {
     final uid = currentUid;
     if (uid == null) return [];
@@ -1313,13 +1315,12 @@ class FirebaseService {
     return snap.docs.map(_reviewFromDoc).toList();
   }
 
-  /// Most reviews one account may write for the same restaurant.
-  static const _maxReviewsPerPlace = 5;
-
-  /// Saves a review. A user may write several reviews of the same
-  /// restaurant and edit any of their own. Pass [reviewId] to edit an
-  /// existing review: it goes back to 'pending' so the admin checks the new
-  /// text. Without [reviewId] a new review is created.
+  /// Saves a review. Each user may write ONE review per restaurant: a new
+  /// review is stored under the id '<uid>_<restaurantId>', so a second one
+  /// for the same place cannot exist (the database rules enforce this too).
+  /// If the user already has a review of this place, it is edited instead:
+  /// it goes back to 'pending' so the admin checks the new text, and its
+  /// createdAt is kept. [reviewId] is the review being edited, if known.
   static Future<void> submitReview({
     required Restaurant restaurant,
     required String userName,
@@ -1338,9 +1339,17 @@ class FirebaseService {
         (dish == null || dish.trim().isEmpty) ? null : dish.trim();
 
     try {
-      if (reviewId != null) {
+      // A review saved before the one-review rule has a random id. Edit it
+      // instead of creating a second review of the same place.
+      var editId = reviewId;
+      if (editId == null) {
+        final mine = await fetchMyReviews(restaurant.id);
+        if (mine.isNotEmpty) editId = mine.first.id;
+      }
+
+      if (editId != null) {
         // Edit: same record, back to pending. createdAt is kept.
-        await _db.collection('reviews').doc(reviewId).update({
+        await _db.collection('reviews').doc(editId).update({
           'restaurantName': restaurant.name,
           'userName': userName,
           'rating': rating,
@@ -1351,13 +1360,7 @@ class FirebaseService {
           'updatedAt': FieldValue.serverTimestamp(),
         });
       } else {
-        final mine = await fetchMyReviews(restaurant.id);
-        if (mine.length >= _maxReviewsPerPlace) {
-          throw ApiException(
-              'You can write up to $_maxReviewsPerPlace reviews for one place. '
-              'Edit one of your earlier reviews instead.');
-        }
-        await _db.collection('reviews').add({
+        await _db.collection('reviews').doc('${uid}_${restaurant.id}').set({
           'restaurantId': restaurant.id,
           'restaurantName': restaurant.name,
           'userId': uid,

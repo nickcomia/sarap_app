@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../services/firebase_service.dart';
 import '../widgets/common.dart';
 import '../widgets/review_sheet.dart';
+import 'restaurant_map_screen.dart';
 
 /// Figure 14: Restaurant / Establishment Detail Screen.
 /// (1) Back arrow, (2) heart/save button, (3) "Get directions" button.
@@ -329,23 +329,17 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
           ),
         ],
       ),
-      // (3) Get directions button
+      // (3) Get directions button — opens the in-app Tanauan map with the
+      // route drawn to this restaurant (no external Google Maps).
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
           child: ElevatedButton.icon(
-            onPressed: () async {
-              final uri = Uri.parse(
-                'https://www.google.com/maps/dir/?api=1&destination=${r.latitude},${r.longitude}',
-              );
-              if (await canLaunchUrl(uri)) {
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
-              } else if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Could not open maps for ${r.name}')),
-                );
-              }
-            },
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => RestaurantMapScreen(destination: r),
+              ),
+            ),
             icon: const Icon(Icons.directions_outlined),
             label: const Text('Get directions'),
           ),
