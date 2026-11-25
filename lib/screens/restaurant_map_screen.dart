@@ -340,7 +340,7 @@ class _RestaurantMapScreenState extends State<RestaurantMapScreen> {
           children: [
             TileLayer(
               urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-              userAgentPackageName: 'com.example.sarap_app',
+              userAgentPackageName: 'com.ph.sarap_app',
             ),
             if (_radiusKm != null)
               CircleLayer(circles: [

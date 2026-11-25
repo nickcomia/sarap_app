@@ -61,8 +61,36 @@ class _Group {
       [this.notes = const []]);
 }
 
+class _MealStats {
+  final int chosen;
+  final int eaten;
+  final int home;
+  final double? avgKcal;
+  final List<_Row> dishes;
+  final List<_Row> eatenDishes;
+  final List<_Row> restaurants;
+  final List<_Row> cuisines;
+  final List<_Row> slots;
+  final List<_Row> sources;
+
+  const _MealStats({
+    required this.chosen,
+    required this.eaten,
+    required this.home,
+    required this.avgKcal,
+    required this.dishes,
+    required this.eatenDishes,
+    required this.restaurants,
+    required this.cuisines,
+    required this.slots,
+    required this.sources,
+  });
+}
+
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Map<String, dynamic>? _stats;
+  _MealStats? _meals;
+  bool _mealsOk = false;
   String? _error;
 
   @override
@@ -71,17 +99,158 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _stats = null;
-      _error = null;
-    });
+  /// [force] skips the 5-minute cache so the Reload button really reloads.
+  Future<void> _load({bool force = false}) async {
+    if (mounted) {
+      setState(() {
+        _stats = null;
+        _meals = null;
+        _mealsOk = false;
+        _error = null;
+      });
+    }
     try {
-      final s = await FirebaseService.fetchDashboardStats();
-      if (mounted) setState(() => _stats = s);
+      final stats =
+          await FirebaseService.fetchDashboardStats(forceRefresh: force);
+
+      _MealStats? meals;
+      var mealsOk = false;
+      try {
+        meals = _computeMeals(await FirebaseService.fetchAllMealLogs());
+        mealsOk = true;
+      } catch (_) {
+        // Meal analytics are optional; the rest of the dashboard can load.
+      }
+
+      if (mounted) {
+        setState(() {
+          _stats = stats;
+          _meals = meals;
+          _mealsOk = mealsOk;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     }
+  }
+
+  _MealStats _computeMeals(List<Map<String, dynamic>> logs) {
+    final dishes = <String, int>{};
+    final dishLabels = <String, String>{};
+    final eatenDishes = <String, int>{};
+    final eatenLabels = <String, String>{};
+    final restaurants = <String, int>{};
+    final restaurantLabels = <String, String>{};
+    final cuisines = <String, int>{};
+    final cuisineLabels = <String, String>{};
+    final slots = <String, int>{};
+    final sources = <String, int>{};
+
+    var chosen = 0;
+    var eaten = 0;
+    var home = 0;
+    var kcalSum = 0;
+    var kcalCount = 0;
+
+    void bump(
+      Map<String, int> counts,
+      Map<String, String> labels,
+      String label,
+    ) {
+      final key = label.toLowerCase();
+      counts[key] = (counts[key] ?? 0) + 1;
+      labels.putIfAbsent(key, () => label);
+    }
+
+    for (final meal in logs) {
+      final name = (meal['dishName'] ?? '').toString().trim();
+      if (name.isEmpty) continue;
+
+      final source = (meal['source'] ?? 'manual').toString();
+      if (source == 'eaten') {
+        eaten++;
+        bump(eatenDishes, eatenLabels, name);
+        continue;
+      }
+
+      chosen++;
+      bump(dishes, dishLabels, name);
+
+      final homeCooked = meal['homeCooked'] == true;
+      if (homeCooked) home++;
+
+      final restaurantName =
+          (meal['restaurantName'] ?? '').toString().trim();
+      if (!homeCooked && restaurantName.isNotEmpty) {
+        bump(restaurants, restaurantLabels, restaurantName);
+      }
+
+      final cuisine = (meal['cuisine'] ?? '').toString().trim();
+      if (cuisine.isNotEmpty) bump(cuisines, cuisineLabels, cuisine);
+
+      final slot = (meal['slot'] ?? '').toString();
+      if (slot.isNotEmpty) slots[slot] = (slots[slot] ?? 0) + 1;
+
+      sources[source] = (sources[source] ?? 0) + 1;
+
+      final calories = (meal['calories'] as num?)?.toInt() ?? 0;
+      if (calories > 0) {
+        kcalSum += calories;
+        kcalCount++;
+      }
+    }
+
+    List<_Row> top(
+      Map<String, int> counts,
+      Map<String, String> labels,
+      int limit,
+    ) {
+      final entries = counts.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      return entries
+          .take(limit)
+          .map((entry) => _Row(
+                labels[entry.key] ?? entry.key,
+                entry.value,
+                '${entry.value}',
+              ))
+          .toList();
+    }
+
+    const slotLabels = {
+      'breakfast': 'Breakfast',
+      'lunch': 'Lunch',
+      'merienda': 'Merienda',
+      'dinner': 'Dinner',
+    };
+    const sourceLabels = {
+      'picked': 'Picked from a list',
+      'manual': 'Logged by hand',
+      'restaurant_page': 'Added from a restaurant page',
+    };
+
+    return _MealStats(
+      chosen: chosen,
+      eaten: eaten,
+      home: home,
+      avgKcal: kcalCount == 0 ? null : kcalSum / kcalCount,
+      dishes: top(dishes, dishLabels, 6),
+      eatenDishes: top(eatenDishes, eatenLabels, 6),
+      restaurants: top(restaurants, restaurantLabels, 6),
+      cuisines: top(cuisines, cuisineLabels, 8),
+      slots: chosen == 0
+          ? const <_Row>[]
+          : [
+              for (final entry in slotLabels.entries)
+                _Row(entry.value, slots[entry.key] ?? 0,
+                    '${slots[entry.key] ?? 0}'),
+            ],
+      sources: [
+        for (final entry in sources.entries)
+          _Row(sourceLabels[entry.key] ?? entry.key, entry.value,
+              '${entry.value}'),
+      ],
+    );
   }
 
   // ---------------------------------------------------------------
@@ -130,6 +299,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         _n(s, 'users') - _n(s, 'bannedNow') - _n(s, 'disabledUsers');
 
     String dash(bool ok, String v) => ok ? v : '—';
+    final meal = _meals;
+    final mealsOk = _mealsOk;
+    final avgKcal = meal?.avgKcal;
+    const noMealRows = <_Row>[];
+    final mealEmpty =
+        mealsOk ? 'No meals chosen yet.' : 'Meal numbers are unavailable.';
 
     return [
       _Group(
@@ -238,6 +413,46 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           if (!profilesOk)
             'Diner preference numbers are unavailable. Publish the updated '
                 'Firestore rules so admins can read "profiles".',
+        ],
+      ),
+      _Group(
+        'What diners choose',
+        'The meals diners pick or log in their meal plan, and the ones they mark as eaten.',
+        [
+          _Kpi(Icons.restaurant_outlined, 'Meals chosen',
+              dash(mealsOk, '${meal?.chosen ?? 0}')),
+          _Kpi(Icons.check_circle_outline, 'Marked as eaten',
+              dash(mealsOk, '${meal?.eaten ?? 0}')),
+          _Kpi(Icons.home_outlined, 'Home-cooked meals',
+              dash(mealsOk, '${meal?.home ?? 0}')),
+          _Kpi(Icons.local_fire_department_outlined,
+              'Average calories per meal',
+              avgKcal == null ? '—' : '${avgKcal.round()} kcal'),
+        ],
+        [
+          _Chart('Most chosen dishes', meal?.dishes ?? noMealRows, mealEmpty),
+          _Chart(
+            'Most eaten dishes',
+            meal?.eatenDishes ?? noMealRows,
+            mealsOk
+                ? 'No meals marked as eaten yet.'
+                : 'Meal numbers are unavailable.',
+          ),
+          _Chart(
+              'Restaurants chosen most',
+              meal?.restaurants ?? noMealRows,
+              mealEmpty),
+          _Chart('Cuisines of chosen meals', meal?.cuisines ?? noMealRows,
+              mealEmpty, ChartKind.donut),
+          _Chart('Meals by time of day', meal?.slots ?? noMealRows, mealEmpty,
+              ChartKind.columns),
+          _Chart('How diners chose', meal?.sources ?? noMealRows, mealEmpty,
+              ChartKind.donut),
+        ],
+        [
+          if (!mealsOk)
+            'Meal choice numbers are unavailable. Publish the updated '
+                'Firestore rules so admins can read "mealLog".',
         ],
       ),
       _Group(
@@ -382,6 +597,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           'the app.');
     }
 
+    // 9) What diners actually choose
+    final meals = _meals;
+    if (_mealsOk && meals != null && meals.chosen >= 10) {
+      final homeShare = meals.home * 100 / meals.chosen;
+      if (homeShare >= 40) {
+        out.add('${homeShare.round()}% of the meals diners logged were '
+            'home-cooked. The listings may not cover what they want to eat. '
+            'Check the cuisines and dishes in the Meal choices tab.');
+      }
+      if (meals.restaurants.isNotEmpty) {
+        final topRestaurant = meals.restaurants.first;
+        out.add('${topRestaurant.label} is the restaurant diners choose most '
+            '(${topRestaurant.text} meals). Make sure its menu is complete and accurate.');
+      }
+    }
+
     if (out.isEmpty) {
       out.add('Nothing needs attention right now. Suggestions appear here as '
           'more diners and restaurants are added.');
@@ -434,7 +665,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   static final _brand = PdfColor.fromHex('#FF6B4A');
-  static final _brandLight = PdfColor.fromHex('#FFF1EC');
   static final _ink = PdfColor.fromHex('#1F2937');
   static final _muted = PdfColor.fromHex('#6B7280');
   static final _line = PdfColor.fromHex('#E5E7EB');
@@ -1133,6 +1363,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     'Restaurants',
     'Popularity',
     'Diner demand',
+    'Meal choices',
     'Moderation',
     'Insights',
   ];
@@ -1150,7 +1381,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           actions: [
             IconButton(
               tooltip: 'Reload',
-              onPressed: _load,
+              onPressed: () => _load(force: true),
               icon: const Icon(Icons.refresh),
             ),
             if (s != null && !phone) ...[

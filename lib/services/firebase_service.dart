@@ -553,6 +553,7 @@ class FirebaseService {
     required int calories,
     required List<String> mealTypes,
     required List<String> dietaryTags,
+    String? servingSize, // e.g. "1 slice", "16 oz cup", "1 plate (about 250 g)"
     String? imageUrl,
   }) async {
     _validateMenuValues(price: price, calories: calories);
@@ -566,6 +567,7 @@ class FirebaseService {
       'calories': calories,
       'mealTypes': mealTypes,
       'dietaryTags': dietaryTags,
+      'servingSize': _cleanServing(servingSize),
       'imageUrl': imageUrl,
       'createdAt': FieldValue.serverTimestamp(),
     });
@@ -592,6 +594,7 @@ class FirebaseService {
         calories: _asInt(m['calories']),
         mealTypes: _asStringList(m['mealTypes']),
         dietaryTags: _asStringList(m['dietaryTags']),
+        servingSize: _cleanServing(m['servingSize']),
         imageUrl: m['imageUrl'],
       );
     }).toList();
@@ -617,6 +620,7 @@ class FirebaseService {
         calories: _asInt(m['calories']),
         mealTypes: _asStringList(m['mealTypes']),
         dietaryTags: _asStringList(m['dietaryTags']),
+        servingSize: _cleanServing(m['servingSize']),
         imageUrl: m['imageUrl'],
       );
     }).toList();
@@ -707,6 +711,7 @@ class FirebaseService {
     required int calories,
     required List<String> mealTypes,
     required List<String> dietaryTags,
+    String? servingSize, // e.g. "1 slice", "16 oz cup", "1 plate (about 250 g)"
     String? imageUrl,
   }) async {
     _validateMenuValues(price: price, calories: calories);
@@ -721,6 +726,7 @@ class FirebaseService {
       'calories': calories,
       'mealTypes': mealTypes,
       'dietaryTags': dietaryTags,
+      'servingSize': _cleanServing(servingSize),
       'imageUrl': imageUrl,
     });
   }
@@ -979,6 +985,58 @@ class FirebaseService {
       reviewsOk = false;
     }
 
+    // ---- What diners chose (best effort; counts only, never one diner) ----
+    var mealLogOk = true;
+    var mealLogCount = 0, mealLogHome = 0;
+    final mealLogUsers = <String>{};
+    final dishLabels = <String, String>{};
+    final dishCounts = <String, int>{};
+    final eatenCuisines = <String, int>{};
+    final eatenPlaces = <String, int>{};
+    final slotCounts = <String, int>{};
+    final slotKcal = <String, int>{};
+    try {
+      final ml = await _db.collectionGroup('mealLog').get();
+      for (final d in ml.docs) {
+        final m = d.data();
+        mealLogCount++;
+        final owner = d.reference.parent.parent;
+        if (owner != null) mealLogUsers.add(owner.id);
+        final slotName = (m['slot'] ?? 'other').toString();
+        final slotLabel = slotName.isEmpty
+            ? 'Other'
+            : slotName[0].toUpperCase() + slotName.substring(1);
+        slotCounts[slotLabel] = (slotCounts[slotLabel] ?? 0) + 1;
+        slotKcal[slotLabel] = (slotKcal[slotLabel] ?? 0) + _asInt(m['calories']);
+        if (m['homeCooked'] == true) {
+          mealLogHome++;
+          continue; // free-text home meals stay out of the rankings
+        }
+        final dish = (m['dishName'] ?? '').toString().trim();
+        if (dish.isNotEmpty) {
+          final k = dish.toLowerCase();
+          dishLabels.putIfAbsent(k, () => dish);
+          dishCounts[k] = (dishCounts[k] ?? 0) + 1;
+        }
+        final cu = (m['cuisine'] ?? '').toString().trim();
+        if (cu.isNotEmpty) eatenCuisines[cu] = (eatenCuisines[cu] ?? 0) + 1;
+        final pl = (m['restaurantName'] ?? '').toString().trim();
+        if (pl.isNotEmpty) eatenPlaces[pl] = (eatenPlaces[pl] ?? 0) + 1;
+      }
+    } catch (_) {
+      mealLogOk = false;
+    }
+    final chosenDishes = <String, int>{
+      for (final e in dishCounts.entries) dishLabels[e.key]!: e.value
+    };
+    final avgKcalBySlot = [
+      for (final e in slotCounts.entries)
+        <String, dynamic>{
+          'name': e.key,
+          'count': e.value == 0 ? 0 : ((slotKcal[e.key] ?? 0) / e.value).round(),
+        }
+    ];
+
     // ---- Appeals and moderation actions (best effort) ----
     var appealsOk = true;
     var aPending = 0, aApproved = 0, aRejected = 0;
@@ -1051,6 +1109,16 @@ class FirebaseService {
       'avgBudget': budgetN == 0 ? null : budgetSum / budgetN,
       'plansOk': plansOk,
       'usersWithPlan': planUsers.length,
+      // what diners chose
+      'mealLogOk': mealLogOk,
+      'mealLogCount': mealLogCount,
+      'mealLogUsers': mealLogUsers.length,
+      'mealLogHomeCooked': mealLogHome,
+      'topChosenDishes': _ranked(chosenDishes, take: 10),
+      'topChosenCuisines': _ranked(eatenCuisines, take: 8),
+      'topChosenPlaces': _ranked(eatenPlaces, take: 8),
+      'mealsBySlot': _ranked(slotCounts),
+      'avgKcalBySlot': avgKcalBySlot,
       // reviews and moderation
       'reviewsOk': reviewsOk,
       'reviewsApproved': rApproved,
@@ -1118,14 +1186,15 @@ class FirebaseService {
     final userRef = _db.collection('users').doc(uid);
 
     // Subcollections first: deleting a document does not delete them.
-    for (final sub in const ['saved', 'mealPlan']) {
+    for (final sub in const ['saved', 'mealPlan', 'mealLog']) {
       final snap = await userRef.collection(sub).get();
-      if (snap.docs.isEmpty) continue;
-      final subBatch = _db.batch();
-      for (final d in snap.docs) {
-        subBatch.delete(d.reference);
+      for (var i = 0; i < snap.docs.length; i += 400) {
+        final subBatch = _db.batch();
+        for (final d in snap.docs.skip(i).take(400)) {
+          subBatch.delete(d.reference);
+        }
+        await subBatch.commit();
       }
-      await subBatch.commit();
     }
 
     final batch = _db.batch();
@@ -1183,6 +1252,15 @@ class FirebaseService {
     if (value is num) return value.toInt();
     if (value is String) return int.tryParse(value) ?? 0;
     return 0;
+  }
+
+  /// The serving size text of a dish ("1 slice", "16 oz"). Empty or missing
+  /// means "not specified" and is stored/returned as null.
+  static String? _cleanServing(dynamic value) {
+    if (value == null) return null;
+    final t = value.toString().trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (t.isEmpty) return null;
+    return t.length > 40 ? t.substring(0, 40) : t;
   }
 
   /// Firestore fields that should be arrays sometimes get entered as a
@@ -1261,6 +1339,31 @@ class FirebaseService {
     return snap.docs.map((d) => d.data()).toList();
   }
 
+  /// Records one meal the user chose or logged. Best effort: the caller never
+  /// waits on it and ignores failures.
+  static Future<void> logMealChoice(MealChoice c) async {
+    final uid = currentUid;
+    if (uid == null) return;
+    await _db.collection('users').doc(uid).collection('mealLog').add({
+      ...c.toMap(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// The user's most recent meal choices (newest first).
+  static Future<List<MealChoice>> fetchMealHistory({int limit = 120}) async {
+    final uid = currentUid;
+    if (uid == null) return [];
+    final snap = await _db
+        .collection('users')
+        .doc(uid)
+        .collection('mealLog')
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .get();
+    return snap.docs.map((d) => MealChoice.fromMap(d.data())).toList();
+  }
+
   /// Writes one slot. Done as a transaction so it only succeeds when the
   /// server actually accepted it: offline or on timeout it throws, and the
   /// app then leaves the on-screen meal unchanged. The doc id is fixed
@@ -1285,6 +1388,112 @@ class FirebaseService {
         'calories': calories,
       });
     }, timeout: const Duration(seconds: 10));
+  }
+
+  // ---- Meal eaten ticks and meal analytics ----
+
+  static Future<void> markMealEaten({
+    required String dayLabel,
+    required MealSlot slot,
+    required MealChoice choice,
+  }) async {
+    final uid = currentUid;
+    if (uid == null) return;
+
+    final userRef = _db.collection('users').doc(uid);
+    final logRef = userRef.collection('mealLog').doc();
+    final tickRef =
+        userRef.collection('mealEaten').doc('${dayLabel}_${slot.name}');
+
+    final batch = _db.batch();
+    batch.set(logRef, {
+      ...choice.toMap(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    batch.set(tickRef, {
+      'dayLabel': dayLabel,
+      'slot': slot.name,
+      'dishName': choice.dishName,
+      'logId': logRef.id,
+      'eatenAt': FieldValue.serverTimestamp(),
+    });
+    await batch.commit();
+  }
+
+  static Future<void> unmarkMealEaten(String dayLabel, MealSlot slot) async {
+    final uid = currentUid;
+    if (uid == null) return;
+
+    final userRef = _db.collection('users').doc(uid);
+    final tickRef =
+        userRef.collection('mealEaten').doc('${dayLabel}_${slot.name}');
+    final tickSnapshot = await tickRef.get();
+    final logId = tickSnapshot.data()?['logId'] as String?;
+
+    final batch = _db.batch();
+    if (logId != null) {
+      batch.delete(userRef.collection('mealLog').doc(logId));
+    }
+    batch.delete(tickRef);
+    await batch.commit();
+  }
+
+  /// Removes only the tick when a meal is replaced or the plan is rebuilt.
+  /// The meal history record remains because the diner already ate the meal.
+  static Future<void> deleteEatenTick(String dayLabel, MealSlot slot) async {
+    final uid = currentUid;
+    if (uid == null) return;
+
+    await _db
+        .collection('users')
+        .doc(uid)
+        .collection('mealEaten')
+        .doc('${dayLabel}_${slot.name}')
+        .delete();
+  }
+
+  static Future<void> clearAllEatenTicks() async {
+    final uid = currentUid;
+    if (uid == null) return;
+
+    final collection = _db
+        .collection('users')
+        .doc(uid)
+        .collection('mealEaten');
+    final snapshot = await collection.get();
+    if (snapshot.docs.isEmpty) return;
+
+    final batch = _db.batch();
+    for (final doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+  }
+
+  static Future<List<Map<String, dynamic>>> fetchEatenTicks() async {
+    final uid = currentUid;
+    if (uid == null) return [];
+
+    final snapshot = await _db
+        .collection('users')
+        .doc(uid)
+        .collection('mealEaten')
+        .get();
+
+    return snapshot.docs.map((doc) => {
+      ...doc.data(),
+      'id': doc.id,
+    }).toList();
+  }
+
+  /// Admin analytics: requires an admin-authorized collection-group read rule.
+  static Future<List<Map<String, dynamic>>> fetchAllMealLogs() async {
+    final snapshot = await _db
+        .collectionGroup('mealLog')
+        .limit(5000)
+        .get();
+
+    return snapshot.docs.map((doc) => doc.data()).toList();
   }
 
   // ------------------------------------------------------------------

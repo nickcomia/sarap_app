@@ -338,6 +338,7 @@ class AppState extends ChangeNotifier {
       loadProfileFromServer(),
       loadSavedFromServer(),
       loadMealPlanFromServer(),
+      loadMealHistoryFromServer(),
       loadModerationState(),
     ]);
   }
@@ -456,6 +457,7 @@ class AppState extends ChangeNotifier {
         loadRestaurantsFromServer(),
         loadSavedFromServer(),
         loadMealPlanFromServer(),
+        loadMealHistoryFromServer(),
         loadModerationState(),
       ]);
 
@@ -819,6 +821,9 @@ class AppState extends ChangeNotifier {
     }
 
     mealPlan = built;
+    if (isLoggedIn) {
+      FirebaseService.clearAllEatenTicks().catchError((_) {});
+    }
     final emptySlots = built.length * MealSlot.values.length - filled;
     final note = _skippedNote(menu.skipped);
     if (emptySlots > 0) {
@@ -863,6 +868,7 @@ class AppState extends ChangeNotifier {
               ))
           .toList();
       notifyListeners();
+      await _loadEatenTicks();
     } catch (_) {
       // Keep whatever local meal plan already exists.
     }
@@ -908,6 +914,9 @@ class AppState extends ChangeNotifier {
     required String? dishName,
     required String? restaurantName,
     required int? calories,
+    String? source, // set only for meals the user chose on purpose
+    MenuItem? item,
+    Restaurant? restaurant,
   }) async {
     if (dayIndex < 0 || dayIndex >= mealPlan.length) return false;
     final day = mealPlan[dayIndex];
@@ -934,10 +943,94 @@ class AppState extends ChangeNotifier {
     entry.dishName = dishName;
     entry.restaurantName = restaurantName;
     entry.calories = calories;
+    if (entry.eaten) {
+      entry.eaten = false;
+      if (isLoggedIn) {
+        FirebaseService.deleteEatenTick(day.dayLabel, slot).catchError((_) {});
+      }
+    }
+    if (source != null && dishName != null) {
+      _recordMealChoice(
+        dayLabel: day.dayLabel,
+        slot: slot,
+        dishName: dishName,
+        restaurantName: restaurantName,
+        calories: calories,
+        source: source,
+        item: item,
+        restaurant: restaurant,
+      );
+    }
     planMessage = null;
     debugPrint('SLOT COMMIT: ${watch.elapsedMilliseconds} ms');
     notifyListeners();
     return true;
+  }
+
+  // --- What the user chose (feeds suggestions and the admin analytics) ---
+
+  Restaurant? _restaurantById(String id) {
+    for (final r in restaurants) {
+      if (r.id == id) return r;
+    }
+    return null;
+  }
+
+  Restaurant? _restaurantByName(String name) {
+    for (final r in restaurants) {
+      if (r.name == name) return r;
+    }
+    return null;
+  }
+
+  void _recordMealChoice({
+    required String dayLabel,
+    required MealSlot slot,
+    required String dishName,
+    required String? restaurantName,
+    required int? calories,
+    required String source,
+    MenuItem? item,
+    Restaurant? restaurant,
+  }) {
+    final homeCooked = restaurantName == 'Home-cooked';
+    final r = restaurant ??
+        ((restaurantName == null || homeCooked)
+            ? null
+            : _restaurantByName(restaurantName));
+    final choice = MealChoice(
+      dishName: dishName,
+      restaurantId: r?.id ?? item?.restaurantId,
+      restaurantName: restaurantName,
+      cuisine: r?.cuisine,
+      dietaryTags: item?.dietaryTags ?? const <String>[],
+      calories: calories ?? 0,
+      slot: slot,
+      dayLabel: dayLabel,
+      source: source,
+      homeCooked: homeCooked,
+    );
+    profile.taste.add(choice);
+    MatchingEngine.recomputeAll(profile, restaurants);
+    // Saved in the background: a failed save never blocks the meal plan.
+    FirebaseService.logMealChoice(choice).catchError((_) {});
+  }
+
+  /// Loads this user's recent choices so suggestions can use them.
+  Future<void> loadMealHistoryFromServer() async {
+    if (!isLoggedIn) return;
+    try {
+      final list = await FirebaseService.fetchMealHistory();
+      profile.taste.clear();
+      for (final c in list.reversed) {
+        if (c.source == 'eaten') continue;
+        profile.taste.add(c);
+      }
+      MatchingEngine.recomputeAll(profile, restaurants);
+      notifyListeners();
+    } catch (_) {
+      // Offline or blocked: suggestions simply work without history.
+    }
   }
 
   /// Swaps one slot for another random eligible dish. If nothing else
@@ -1000,13 +1093,90 @@ class AppState extends ChangeNotifier {
     return _commitSlot(dayIndex, slot,
         dishName: dishName.trim(),
         restaurantName: restaurantName,
-        calories: calories);
+        calories: calories,
+        source: 'manual');
   }
 
   /// Clears a meal slot back to empty.
   Future<bool> clearMeal(int dayIndex, MealSlot slot) =>
       _commitSlot(dayIndex, slot,
           dishName: null, restaurantName: null, calories: null);
+
+  // --- "I ate this" tick ----------------------------------------------------
+
+  Future<void> _loadEatenTicks() async {
+    try {
+      final ticks = await FirebaseService.fetchEatenTicks();
+      for (final tick in ticks) {
+        final dayIndex =
+            mealPlan.indexWhere((day) => day.dayLabel == tick['dayLabel']);
+        if (dayIndex < 0) continue;
+
+        for (final meal in mealPlan[dayIndex].meals) {
+          if (meal.slot.name == tick['slot'] &&
+              meal.isFilled &&
+              meal.dishName == tick['dishName']) {
+            meal.eaten = true;
+          }
+        }
+      }
+      notifyListeners();
+    } catch (_) {
+      // Offline: ticks simply do not show until the next load.
+    }
+  }
+
+  Future<String?> setMealEaten(
+      int dayIndex, MealSlot slot, bool eaten) async {
+    if (dayIndex < 0 || dayIndex >= mealPlan.length) {
+      return 'The meal plan is not ready yet.';
+    }
+
+    final day = mealPlan[dayIndex];
+    final entry = day.meals.firstWhere((meal) => meal.slot == slot);
+    if (!entry.isFilled) return 'Pick a meal first.';
+    if (entry.eaten == eaten) return null;
+
+    if (isLoggedIn) {
+      try {
+        if (eaten) {
+          final restaurantName = entry.restaurantName;
+          final homeCooked = restaurantName == 'Home-cooked';
+          final restaurant = (restaurantName == null || homeCooked)
+              ? null
+              : _restaurantByName(restaurantName);
+
+          final choice = MealChoice(
+            dishName: entry.dishName!,
+            restaurantId: restaurant?.id,
+            restaurantName: restaurantName,
+            cuisine: restaurant?.cuisine,
+            calories: entry.calories ?? 0,
+            slot: slot,
+            dayLabel: day.dayLabel,
+            source: 'eaten',
+            homeCooked: homeCooked,
+          );
+
+          await FirebaseService.markMealEaten(
+            dayLabel: day.dayLabel,
+            slot: slot,
+            choice: choice,
+          ).timeout(_networkTimeout);
+        } else {
+          await FirebaseService
+              .unmarkMealEaten(day.dayLabel, slot)
+              .timeout(_networkTimeout);
+        }
+      } catch (_) {
+        return 'Could not save that. Check your connection and try again.';
+      }
+    }
+
+    entry.eaten = eaten;
+    notifyListeners();
+    return null;
+  }
 
   // --- Swap / empty-slot pickers -------------------------------------------
 
@@ -1119,7 +1289,10 @@ class AppState extends ChangeNotifier {
     final ok = await _commitSlot(dayIndex, slot,
         dishName: chosen.item.name,
         restaurantName: chosen.restaurantName,
-        calories: chosen.item.calories);
+        calories: chosen.item.calories,
+        source: 'picked',
+        item: chosen.item,
+        restaurant: _restaurantById(chosen.item.restaurantId));
     return ok ? null : planMessage;
   }
 
@@ -1162,7 +1335,10 @@ class AppState extends ChangeNotifier {
     final ok = await _commitSlot(dayIndex, slot,
         dishName: item.name,
         restaurantName: restaurant.name,
-        calories: item.calories);
+        calories: item.calories,
+        source: 'restaurant_page',
+        item: item,
+        restaurant: restaurant);
     return ok ? null : planMessage;
   }
 

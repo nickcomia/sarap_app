@@ -42,6 +42,14 @@ class AiRecommendationService {
           'matchPercent: ${r.matchPercent}';
     }).join('\n');
 
+    final taste = profile.taste;
+    final tasteLine = taste.isUseful
+        ? '- Foods this user chose before: favorite dishes '
+            '${taste.topDishes(3).join(", ")}; most chosen cuisines '
+            '${taste.topCuisines(3).join(", ")} '
+            '(use only as a hint about taste)'
+        : '- Foods this user chose before: not enough history yet';
+
     final prompt = '''
 You are a friendly food recommendation assistant inside a Filipino restaurant-finder app called SARAP.
 
@@ -52,6 +60,7 @@ User profile:
 - Max budget preference: ₱${profile.maxBudget}
 - Preferred cuisines: ${profile.cuisines.isEmpty ? "no strong preference" : profile.cuisines.join(", ")}
 - Dietary restrictions: ${profile.dietaryRestrictions.isEmpty ? "none" : profile.dietaryRestrictions.join(", ")}
+$tasteLine
 
 Candidate restaurants (already pre-scored by an internal matching algorithm — matchPercent is that score):
 $restaurantLines

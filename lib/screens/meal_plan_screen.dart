@@ -83,6 +83,17 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     }
   }
 
+  Future<void> _toggleEaten(MealEntry meal) async {
+    final problem = await AppState.instance
+        .setMealEaten(_dayIndex, meal.slot, !meal.eaten);
+    if (!mounted) return;
+    setState(() {});
+    if (problem != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(problem)));
+    }
+  }
+
   Future<void> _openEditSheet(MealEntry meal) async {
     await showModalBottomSheet(
       context: context,
@@ -308,6 +319,13 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                 color: over ? Colors.red.shade700 : colors.navy),
           ),
           const SizedBox(height: 2),
+          if (day.meals.any((meal) => meal.eaten)) ...[
+            Text(
+              '${day.meals.where((meal) => meal.eaten).length} of $logged marked as eaten',
+              style: TextStyle(fontSize: 12.5, color: colors.navy),
+            ),
+            const SizedBox(height: 2),
+          ],
           Text('Only calories are tracked in the meal plan.',
               style: TextStyle(fontSize: 11, color: colors.muted)),
         ],
@@ -415,6 +433,23 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                 Text('${meal.restaurantName} • ${meal.calories} kcal',
                     style: TextStyle(color: colors.muted, fontSize: 12)),
               ],
+            ),
+          ),
+          Tooltip(
+            message: meal.eaten ? 'Marked as eaten' : 'I ate this',
+            child: InkWell(
+              onTap: () => _toggleEaten(meal),
+              borderRadius: BorderRadius.circular(10),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(
+                  meal.eaten
+                      ? Icons.check_circle
+                      : Icons.check_circle_outline,
+                  size: 22,
+                  color: meal.eaten ? Colors.green.shade600 : colors.muted,
+                ),
+              ),
             ),
           ),
           // Swap this meal for another eligible dish

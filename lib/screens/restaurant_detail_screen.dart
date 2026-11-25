@@ -125,7 +125,9 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('${item.name} • ${item.calories} kcal',
+                Text(
+                    '${item.name} • ${item.calories} kcal'
+                    '${item.servingSize != null ? ' (${item.servingSize})' : ''}',
                     style: const TextStyle(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 14),
                 DropdownButtonFormField<int>(
@@ -283,6 +285,10 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                       style: TextStyle(color: colors.navy, fontSize: 13.5, height: 1.5)),
                   const SizedBox(height: 18),
                   Text('Menu', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  Text(
+                      'Calories are estimates for one serving, as entered by the restaurant admin.',
+                      style: TextStyle(color: colors.muted, fontSize: 12)),
                   const SizedBox(height: 10),
                   _buildMenuSection(context),
                   const SizedBox(height: 18),
@@ -373,7 +379,10 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     }
     return Column(
       children: _menuItems!.map((item) {
-        return Container(
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _showItemDetails(item),
+          child: Container(
           margin: const EdgeInsets.only(bottom: 10),
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
@@ -411,7 +420,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                     const SizedBox(height: 2),
                     Text(
                         item.calories > 0
-                            ? '${item.calories} kcal'
+                            ? '${item.calories} kcal · ${item.servingSize ?? 'serving not specified'}'
                             : 'Calories not available',
                         style: TextStyle(color: colors.muted, fontSize: 12)),
                   ],
@@ -426,8 +435,187 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
               ),
             ],
           ),
-        );
+        ));
       }).toList(),
+    );
+  }
+
+  /// Slide-up panel with the full details of one dish. Opened by tapping a
+  /// menu card; the "+" button on the card still adds straight to the plan.
+  void _showItemDetails(MenuItem item) {
+    final colors = context.colors;
+    final serving = (item.servingSize ?? '').trim();
+    final hasServing = serving.isNotEmpty;
+
+    Widget infoTile(IconData icon, String label, String value, {bool dim = false}) =>
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: colors.chipBg,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, size: 18, color: colors.primaryDark),
+                const SizedBox(height: 8),
+                Text(value,
+                    style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14.5,
+                        color: dim ? colors.muted : colors.navy)),
+                const SizedBox(height: 2),
+                Text(label, style: TextStyle(color: colors.muted, fontSize: 12)),
+              ],
+            ),
+          ),
+        );
+
+    Widget chips(String title, List<String> values) {
+      if (values.isEmpty) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(top: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title,
+                style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5,
+                    color: colors.navy)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final v in values)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: colors.chipBg,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(v,
+                        style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: colors.navy)),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: colors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colors.border,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: SmartImage(
+                source: item.imageUrl,
+                width: double.infinity,
+                height: 180,
+                fallback: Container(
+                  width: double.infinity,
+                  height: 180,
+                  color: colors.chipBg,
+                  child: Icon(Icons.restaurant, size: 48, color: colors.muted),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(item.name,
+                      style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                          color: colors.navy)),
+                ),
+                const SizedBox(width: 12),
+                Text('₱${item.price.toStringAsFixed(0)}',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                        color: colors.navy)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text('at ${widget.restaurant.name}',
+                style: TextStyle(color: colors.muted, fontSize: 13)),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                infoTile(
+                  Icons.local_fire_department_outlined,
+                  'Calories',
+                  item.calories > 0 ? '${item.calories} kcal' : 'Not available',
+                  dim: item.calories <= 0,
+                ),
+                const SizedBox(width: 12),
+                infoTile(
+                  Icons.restaurant_outlined,
+                  'Serving size',
+                  hasServing ? serving : 'Not specified',
+                  dim: !hasServing,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              hasServing
+                  ? 'The calories are an estimate for $serving.'
+                  : 'The restaurant has not said what serving the calories are '
+                      'for, so treat them as a rough estimate for one serving.',
+              style: TextStyle(color: colors.muted, fontSize: 12, height: 1.4),
+            ),
+            chips('Good for', item.mealTypes),
+            chips('Dietary tags', item.dietaryTags),
+            const SizedBox(height: 22),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _adding
+                    ? null
+                    : () {
+                        Navigator.of(ctx).pop();
+                        _addToPlan(item);
+                      },
+                icon: const Icon(Icons.add_circle_outline),
+                label: const Text('Add to meal plan'),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -457,10 +645,10 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
         ? null
         : reviews.fold<int>(0, (s, r) => s + r.rating) / reviews.length;
 
-    // Users can write several reviews of a place and edit any of their own.
-    // An edit goes back to "waiting for approval" so the admin checks it.
-    // Approved reviews show in the list below (with an Edit button on your
-    // own); waiting and rejected ones are shown here, only to you.
+    // One review per restaurant, editable. An edit goes back to "waiting for
+    // approval" so the admin checks it. Approved reviews show in the list
+    // below (with an Edit button on your own); waiting and rejected ones are
+    // shown here, only to you.
     final myUid = FirebaseService.currentUid;
     final unapproved =
         _myReviews.where((x) => x.status != ReviewStatus.approved).toList();
@@ -473,12 +661,14 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
       children: [
         if (app.isBanned)
           note('You can post reviews again on ${_date(app.bannedUntil!)}.')
-        else
+        else if (_myReviews.isEmpty)
           OutlinedButton.icon(
             onPressed: () => _writeReview(),
             icon: const Icon(Icons.rate_review_outlined),
             label: const Text('Write a review'),
-          ),
+          )
+        else
+          note('You already reviewed this place. Use Edit on your review to change it.'),
         for (final m in unapproved)
           Container(
             width: double.infinity,

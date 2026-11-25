@@ -360,13 +360,13 @@ class _OverviewPageState extends State<_OverviewPage> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool force = false}) async {
     setState(() {
       _stats = null;
       _error = null;
     });
     try {
-      final s = await FirebaseService.fetchDashboardStats();
+      final s = await FirebaseService.fetchDashboardStats(forceRefresh: force);
       if (mounted) setState(() => _stats = s);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -384,45 +384,157 @@ class _OverviewPageState extends State<_OverviewPage> {
     return '${days[d.weekday - 1]}, ${months[d.month - 1]} ${d.day}, ${d.year}';
   }
 
-  int _n(String k) => (_stats?[k] as num?)?.toInt() ?? 0;
+  int _n(Map<String, dynamic> s, String k) => (s[k] as num?)?.toInt() ?? 0;
 
-  List<ChartRow> _rows(dynamic v) => ((v as List?) ?? const []).map((e) {
-        final m = e as Map;
-        final c = (m['count'] as num).toInt();
-        return ChartRow(m['name'].toString(), c, '$c');
-      }).toList();
+  List<ChartRow> _rows(dynamic v) {
+    return ((v as List?) ?? const []).map((e) {
+      final m = e as Map;
+      final c = (m['count'] as num).toInt();
+      return ChartRow(m['name'].toString(), c, '$c');
+    }).toList();
+  }
 
-  /// Two charts per row on wide screens (each pair the same height), one per
-  /// row on narrow ones.
-  Widget _grid(List<Widget> items) => LayoutBuilder(builder: (context, c) {
+  /// Summary of the analytics: extra numbers, four charts and a short list
+  /// of things that need attention. The full version is on "Dashboard &
+  /// reports".
+  List<Widget> _summary(Map<String, dynamic> s) {
+    final profileCount = _n(s, 'profileCount');
+    final onboarded = _n(s, 'onboardedCount');
+    final rate = profileCount == 0 ? 0 : (onboarded * 100 / profileCount).round();
+    String dash(String flag, String v) => s[flag] == true ? v : '—';
+    final avgReview = (s['avgReviewRating'] as num?)?.toDouble();
+
+    final kpis = <(IconData, String, String)>[
+      (Icons.task_alt_outlined, 'Finished onboarding', dash('profilesOk', '$rate%')),
+      (Icons.calendar_month_outlined, 'Diners with a meal plan',
+          dash('plansOk', '${s['usersWithPlan']}')),
+      (Icons.rate_review_outlined, 'Reviews waiting',
+          dash('reviewsOk', '${s['reviewsPending']}')),
+      (Icons.grade_outlined, 'Average review rating',
+          avgReview == null ? '—' : avgReview.toStringAsFixed(1)),
+      (Icons.forum_outlined, 'Appeals waiting',
+          dash('appealsOk', '${s['appealsPending']}')),
+      (Icons.menu_book_outlined, 'Restaurants with no menu', '${s['noMenuCount']}'),
+      (Icons.warning_amber_outlined, 'Users with strikes', '${s['usersWithStrikes']}'),
+      (Icons.timer_off_outlined, 'Banned right now', '${s['bannedNow']}'),
+    ];
+
+    final charts = <Widget>[
+      ChartCard(
+        title: 'New users per week (last 8 weeks)',
+        kind: ChartKind.line,
+        empty: 'No sign-ups yet.',
+        rows: _rows(s['signups']),
+      ),
+      ChartCard(
+        title: 'Restaurants by type',
+        kind: ChartKind.donut,
+        empty: 'No restaurants yet.',
+        rows: _rows(s['byType']),
+      ),
+      ChartCard(
+        title: 'Rating distribution',
+        kind: ChartKind.columns,
+        empty: 'No ratings yet.',
+        rows: _rows(s['ratingBuckets']),
+      ),
+      ChartCard(
+        title: 'Health goals of diners',
+        kind: ChartKind.donut,
+        empty: 'No diner has finished onboarding yet.',
+        rows: _rows(s['goalMix']),
+      ),
+    ];
+
+    final attention = <String>[
+      if (s['reviewsOk'] == true && _n(s, 'reviewsPending') > 0)
+        '${_n(s, 'reviewsPending')} reviews are waiting in the Review queue.',
+      if (s['appealsOk'] == true && _n(s, 'appealsPending') > 0)
+        '${_n(s, 'appealsPending')} appeals are waiting for a decision.',
+      if (_n(s, 'noMenuCount') > 0)
+        '${_n(s, 'noMenuCount')} restaurants have no menu items yet.',
+      if (_n(s, 'users') > 0 && _n(s, 'newUsers') == 0)
+        'No new users signed up in the last 7 days.',
+    ];
+
+    return [
+      const SizedBox(height: 30),
+      Row(children: [
+        Expanded(
+            child: Text('Analytics summary',
+                style: Theme.of(context).textTheme.titleLarge)),
+        TextButton.icon(
+          onPressed: () => widget.onNavigate(3),
+          icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+          label: const Text('Full dashboard'),
+        ),
+      ]),
+      const SizedBox(height: 14),
+      LayoutBuilder(builder: (context, c) {
+        final cols = c.maxWidth >= 860 ? 4 : 2;
         const gap = 14.0;
-        if (c.maxWidth < 780) {
-          return Column(children: [
-            for (final i in items)
-              Padding(padding: const EdgeInsets.only(bottom: gap), child: i)
-          ]);
-        }
-        final rows = <Widget>[];
-        for (var i = 0; i < items.length; i += 2) {
-          final b = i + 1 < items.length ? items[i + 1] : null;
-          rows.add(Padding(
-            padding: const EdgeInsets.only(bottom: gap),
-            child: b == null
-                ? items[i]
-                : IntrinsicHeight(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(child: items[i]),
-                        const SizedBox(width: gap),
-                        Expanded(child: b),
-                      ],
-                    ),
-                  ),
-          ));
-        }
-        return Column(children: rows);
-      });
+        final w = (c.maxWidth - gap * (cols - 1)) / cols;
+        return Wrap(spacing: gap, runSpacing: gap, children: [
+          for (final k in kpis)
+            SizedBox(
+                width: w,
+                child: _KpiCard(icon: k.$1, label: k.$2, value: k.$3)),
+        ]);
+      }),
+      const SizedBox(height: 14),
+      LayoutBuilder(builder: (context, c) {
+        final twoCols = c.maxWidth >= 780;
+        const gap = 14.0;
+        final half = (c.maxWidth - gap) / 2;
+        return Wrap(spacing: gap, runSpacing: gap, children: [
+          for (var i = 0; i < charts.length; i++)
+            SizedBox(
+              // The trend line gets the full width; the rest sit two per row.
+              width: (twoCols && i != 0) ? half : c.maxWidth,
+              child: charts[i],
+            ),
+        ]);
+      }),
+      const SizedBox(height: 14),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.chipSelectedBg,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(children: [
+              Icon(Icons.lightbulb_outline, color: AppColors.primaryDark),
+              SizedBox(width: 8),
+              Text('Needs attention',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      color: AppColors.navy)),
+            ]),
+            const SizedBox(height: 10),
+            if (attention.isEmpty)
+              const Text('Nothing needs attention right now.',
+                  style: TextStyle(color: AppColors.navy, fontSize: 13.5))
+            else
+              for (final i in attention)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text('• $i',
+                      style: const TextStyle(
+                          color: AppColors.navy, fontSize: 13.5, height: 1.4)),
+                ),
+            const SizedBox(height: 4),
+            const Text('More suggestions are on the Insights tab of the dashboard.',
+                style: TextStyle(color: AppColors.muted, fontSize: 12)),
+          ],
+        ),
+      ),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -457,7 +569,7 @@ class _OverviewPageState extends State<_OverviewPage> {
                 ),
                 IconButton(
                   tooltip: 'Refresh',
-                  onPressed: _load,
+                  onPressed: () => _load(force: true),
                   icon: const Icon(Icons.refresh),
                 ),
               ],
@@ -470,7 +582,7 @@ class _OverviewPageState extends State<_OverviewPage> {
                 icon: Icons.error_outline,
                 text: 'Could not load the overview numbers. $_error',
                 actionLabel: 'Try again',
-                onAction: _load,
+                onAction: () => _load(force: true),
               )
             else if (s == null)
               const Padding(
@@ -504,75 +616,8 @@ class _OverviewPageState extends State<_OverviewPage> {
                 );
               }),
 
-            // Analytics summary (second row of numbers + four graphs)
-            if (s != null) ...[
-              const SizedBox(height: 14),
-              LayoutBuilder(builder: (context, c) {
-                final cols = c.maxWidth >= 860 ? 4 : (c.maxWidth >= 520 ? 2 : 1);
-                const gap = 14.0;
-                final w = (c.maxWidth - gap * (cols - 1)) / cols;
-                final profilesOk = s['profilesOk'] == true;
-                final reviewsOk = s['reviewsOk'] == true;
-                final appealsOk = s['appealsOk'] == true;
-                final pc = _n('profileCount');
-                final rate = pc == 0 ? 0 : (_n('onboardedCount') * 100 / pc).round();
-                Widget k(IconData i, String l, String v, {String? note}) => SizedBox(
-                    width: w,
-                    child: _KpiCard(icon: i, label: l, value: v, note: note));
-                return Wrap(spacing: gap, runSpacing: gap, children: [
-                  k(Icons.pending_actions_outlined, 'Reviews waiting',
-                      reviewsOk ? '${_n('reviewsPending')}' : '—',
-                      note: reviewsOk
-                          ? '${_n('reviewsApproved')} approved, ${_n('reviewsRejected')} rejected'
-                          : null),
-                  k(Icons.forum_outlined, 'Appeals waiting',
-                      appealsOk ? '${_n('appealsPending')}' : '—'),
-                  k(Icons.task_alt_outlined, 'Finished onboarding',
-                      profilesOk ? '$rate%' : '—',
-                      note: profilesOk
-                          ? '${_n('onboardedCount')} of $pc diners'
-                          : null),
-                  k(Icons.warning_amber_outlined, 'Users with strikes',
-                      '${_n('usersWithStrikes')}',
-                      note:
-                          '${_n('bannedNow')} banned, ${_n('disabledUsers')} disabled'),
-                ]);
-              }),
-              const SizedBox(height: 30),
-              Text('Analytics summary',
-                  style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 14),
-              _grid([
-                ChartCard(
-                    title: 'New users per week',
-                    kind: ChartKind.line,
-                    rows: _rows(s['signups']),
-                    empty: 'No sign-ups yet.'),
-                ChartCard(
-                    title: 'Rating distribution',
-                    kind: ChartKind.columns,
-                    rows: _rows(s['ratingBuckets']),
-                    empty: 'No ratings yet.'),
-                ChartCard(
-                    title: 'Restaurants by type',
-                    kind: ChartKind.donut,
-                    rows: _rows(s['byType']),
-                    empty: 'No restaurants yet.'),
-                ChartCard(
-                    title: 'Most saved restaurants',
-                    rows: _rows(s['mostSaved']).take(5).toList(),
-                    empty: 'No saved places yet.'),
-              ]),
-              const SizedBox(height: 10),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: () => widget.onNavigate(3),
-                  icon: const Icon(Icons.insights_outlined, size: 18),
-                  label: const Text('See the full analytics and insights'),
-                ),
-              ),
-            ],
+            // Analytics summary (numbers, charts, suggested actions)
+            if (s != null) ..._summary(s),
 
             const SizedBox(height: 30),
             Text('Quick actions', style: Theme.of(context).textTheme.titleLarge),

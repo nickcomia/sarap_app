@@ -117,6 +117,7 @@ class MatchingEngine {
     final distanceScore = (1 - (restaurant.distanceKm / 5)).clamp(0.0, 1.0);
     score += distanceScore * 10;
 
+    score += _historyBonus(profile, restaurant);
     final base = score.clamp(0.0, 100.0);
 
     // --- Health-goal fit ---
@@ -126,6 +127,18 @@ class MatchingEngine {
     if (fit == null) return base.round().clamp(0, 100);
     final w = _healthWeight(profile.healthGoal);
     return (base * (1 - w) + fit * 100 * w).round().clamp(0, 100);
+  }
+
+  /// Up to 8 extra points for places that match what this user really
+  /// chooses: up to 5 for a cuisine they pick often, up to 3 for a place
+  /// they have picked before. Ignored until there are at least 3 choices.
+  static double _historyBonus(UserProfile profile, Restaurant r) {
+    final t = profile.taste;
+    if (!t.isUseful) return 0;
+    var bonus = 0.0;
+    bonus += 5 * (t.cuisineShare(r.cuisine) / 0.5).clamp(0.0, 1.0).toDouble();
+    bonus += min(3, t.restaurantCounts[r.id] ?? 0).toDouble();
+    return bonus;
   }
 
   // ------------------------------------------------------------------
@@ -390,6 +403,10 @@ class MatchingEngine {
           .length;
       score += 20 * (satisfied / profile.dietaryRestrictions.length);
     }
+
+    // Familiarity: a small bonus for a dish this user has chosen before.
+    final times = profile.taste.dishCounts[TasteHistory.dishKey(item.name)] ?? 0;
+    if (times > 0) score += min(6, 2 + times).toDouble();
 
     return score;
   }

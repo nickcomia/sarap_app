@@ -91,6 +91,9 @@ class UserProfile {
   /// Null means "unset" — callers fall back to a generic estimate.
   double? goalWeightKg;
 
+  /// What this user has chosen or logged before (not saved in the profile doc).
+  final TasteHistory taste = TasteHistory();
+
   UserProfile({this.name = 'Juan Dela Cruz', this.email = ''});
 
   /// True only when age, height and weight are all within believable ranges.
@@ -305,9 +308,16 @@ class MenuItem {
   final String restaurantId;
   final String name;
   final double price;
+
+  /// Estimated calories for ONE serving of this dish, as entered by the
+  /// administrator. [servingSize] says what that serving is.
   final int calories;
   final List<String> mealTypes; // e.g. ['Breakfast', 'Lunch']
   final List<String> dietaryTags; // e.g. ['No pork', 'Halal']
+
+  /// What one serving is, for example "1 slice", "16 oz cup" or
+  /// "1 plate (about 250 g)". Null means the administrator has not said.
+  final String? servingSize;
   final String? imageUrl;
 
   MenuItem({
@@ -318,6 +328,7 @@ class MenuItem {
     required this.calories,
     required this.mealTypes,
     required this.dietaryTags,
+    this.servingSize,
     this.imageUrl,
   });
 }
@@ -344,9 +355,19 @@ class MealEntry {
   String? dishName;
   String? restaurantName;
   int? calories;
+
+  /// True once the diner marks this planned meal as eaten.
+  bool eaten;
+
   bool get isFilled => dishName != null;
 
-  MealEntry({required this.slot, this.dishName, this.restaurantName, this.calories});
+  MealEntry({
+    required this.slot,
+    this.dishName,
+    this.restaurantName,
+    this.calories,
+    this.eaten = false,
+  });
 }
 
 class DayPlan {
@@ -407,4 +428,139 @@ class Review {
     this.rejectReason,
     this.createdAt,
   });
+}
+/// One meal the user deliberately chose or logged in the meal plan.
+/// Saved at users/{uid}/mealLog/{id}.
+class MealChoice {
+  final String dishName;
+  final String? restaurantId;
+  final String? restaurantName;
+  final String? cuisine;
+  final List<String> dietaryTags;
+  final int calories;
+  final MealSlot slot;
+  final String dayLabel;
+
+  /// 'picked' (swap/fill picker), 'manual' (log sheet) or 'restaurant_page'.
+  final String source;
+  final bool homeCooked;
+
+  const MealChoice({
+    required this.dishName,
+    this.restaurantId,
+    this.restaurantName,
+    this.cuisine,
+    this.dietaryTags = const <String>[],
+    required this.calories,
+    required this.slot,
+    required this.dayLabel,
+    required this.source,
+    this.homeCooked = false,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'dishName': dishName,
+        'restaurantId': restaurantId,
+        'restaurantName': restaurantName,
+        'cuisine': cuisine,
+        'dietaryTags': dietaryTags,
+        'calories': calories,
+        'slot': slot.name,
+        'dayLabel': dayLabel,
+        'source': source,
+        'homeCooked': homeCooked,
+      };
+
+  factory MealChoice.fromMap(Map<String, dynamic> m) {
+    final tags = m['dietaryTags'];
+    return MealChoice(
+      dishName: (m['dishName'] ?? '').toString(),
+      restaurantId: m['restaurantId'] as String?,
+      restaurantName: m['restaurantName'] as String?,
+      cuisine: m['cuisine'] as String?,
+      dietaryTags: tags is List
+          ? tags.map((e) => e.toString()).toList()
+          : const <String>[],
+      calories: (m['calories'] as num?)?.toInt() ?? 0,
+      slot: MealSlot.values.firstWhere(
+        (s) => s.name == m['slot'],
+        orElse: () => MealSlot.lunch,
+      ),
+      dayLabel: (m['dayLabel'] ?? '').toString(),
+      source: (m['source'] ?? 'manual').toString(),
+      homeCooked: m['homeCooked'] == true,
+    );
+  }
+}
+
+/// Counts of what one user has chosen before. Used to nudge the match score,
+/// the meal planner and the AI prompt toward foods the user really picks.
+class TasteHistory {
+  final Map<String, int> dishCounts = {};
+  final Map<String, int> cuisineCounts = {};
+  final Map<String, int> restaurantCounts = {}; // by restaurant id
+  final Map<String, String> _dishLabels = {};
+  final Map<String, String> _cuisineLabels = {};
+  int total = 0;
+  int _cuisineTotal = 0;
+
+  static String dishKey(String name) => name.toLowerCase().trim();
+  static String _norm(String s) =>
+      s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+  void clear() {
+    dishCounts.clear();
+    cuisineCounts.clear();
+    restaurantCounts.clear();
+    _dishLabels.clear();
+    _cuisineLabels.clear();
+    total = 0;
+    _cuisineTotal = 0;
+  }
+
+  void add(MealChoice c) {
+    final dish = c.dishName.trim();
+    if (dish.isEmpty) return;
+    total++;
+    final k = dishKey(dish);
+    dishCounts[k] = (dishCounts[k] ?? 0) + 1;
+    _dishLabels.putIfAbsent(k, () => dish);
+
+    final cuisine = c.cuisine?.trim() ?? '';
+    if (cuisine.isNotEmpty) {
+      final ck = _norm(cuisine);
+      cuisineCounts[ck] = (cuisineCounts[ck] ?? 0) + 1;
+      _cuisineLabels.putIfAbsent(ck, () => cuisine);
+      _cuisineTotal++;
+    }
+
+    final rid = c.restaurantId;
+    if (rid != null && rid.isNotEmpty) {
+      restaurantCounts[rid] = (restaurantCounts[rid] ?? 0) + 1;
+    }
+  }
+
+  /// Too little history makes the numbers noise, so it is ignored below 3.
+  bool get isUseful => total >= 3;
+
+  int cuisineCount(String cuisine) => cuisineCounts[_norm(cuisine)] ?? 0;
+
+  /// Share (0..1) of this user's choices that were this cuisine.
+  double cuisineShare(String cuisine) =>
+      _cuisineTotal == 0 ? 0 : cuisineCount(cuisine) / _cuisineTotal;
+
+  List<String> topDishes(int n) => _top(dishCounts, _dishLabels, n);
+  List<String> topCuisines(int n) => _top(cuisineCounts, _cuisineLabels, n);
+
+  static List<String> _top(
+      Map<String, int> counts, Map<String, String> labels, int n) {
+    final entries = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return entries.take(n).map((e) {
+      // Dish names can be typed by the user, so keep them short and one line.
+      var t = (labels[e.key] ?? e.key).replaceAll(RegExp(r'[\r\n"]'), ' ').trim();
+      if (t.length > 40) t = t.substring(0, 40);
+      return t;
+    }).toList();
+  }
 }

@@ -21,6 +21,7 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
   final _nameCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
   final _caloriesCtrl = TextEditingController();
+  final _servingCtrl = TextEditingController();
   final _imageCtrl = TextEditingController();
 
   final Set<String> _mealTypes = {};
@@ -92,6 +93,7 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
       _nameCtrl.text = it.name;
       _priceCtrl.text = it.price.toStringAsFixed(it.price % 1 == 0 ? 0 : 2);
       _caloriesCtrl.text = it.calories.toString();
+      _servingCtrl.text = it.servingSize ?? '';
       _imageCtrl.text = it.imageUrl ?? '';
       _mealTypes.addAll(it.mealTypes);
       _dietaryTags.addAll(it.dietaryTags);
@@ -112,6 +114,7 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
     _nameCtrl.dispose();
     _priceCtrl.dispose();
     _caloriesCtrl.dispose();
+    _servingCtrl.dispose();
     _imageCtrl.dispose();
     super.dispose();
   }
@@ -193,6 +196,7 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
           calories: int.tryParse(_caloriesCtrl.text.trim()) ?? 0,
           mealTypes: _mealTypes.toList(),
           dietaryTags: _dietaryTags.toList(),
+          servingSize: _servingCtrl.text.trim(),
           imageUrl: image.isEmpty ? null : image,
         );
       } else {
@@ -203,6 +207,7 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
           calories: int.tryParse(_caloriesCtrl.text.trim()) ?? 0,
           mealTypes: _mealTypes.toList(),
           dietaryTags: _dietaryTags.toList(),
+          servingSize: _servingCtrl.text.trim(),
           imageUrl: image.isEmpty ? null : image,
         );
       }
@@ -304,6 +309,17 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _servingCtrl,
+                  maxLength: 40,
+                  decoration: const InputDecoration(
+                    labelText: 'Serving size (what the calories are for)',
+                    hintText: 'e.g. 1 slice, 16 oz cup, 1 plate (about 250 g)',
+                  ),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
                 ),
                 if (_suggestedCalories != null) ...[
                   const SizedBox(height: 8),
