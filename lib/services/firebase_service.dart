@@ -751,12 +751,37 @@ class FirebaseService {
     return take == null ? list : list.take(take).toList();
   }
 
+  // The dashboard numbers are kept for a few minutes, so opening the
+  // dashboard again does not re-read every collection. The reload button
+  // should call fetchDashboardStats(forceRefresh: true).
+  static const _statsCacheTtl = Duration(minutes: 5);
+  static Map<String, dynamic>? _statsCache;
+  static DateTime? _statsCachedAt;
+
+  /// Numbers for the admin dashboard: growth, coverage, popularity, diner
+  /// demand, reviews and moderation. Reuses the result from the last few
+  /// minutes unless [forceRefresh] is true.
+  static Future<Map<String, dynamic>> fetchDashboardStats(
+      {bool forceRefresh = false}) async {
+    final at = _statsCachedAt;
+    if (!forceRefresh &&
+        _statsCache != null &&
+        at != null &&
+        DateTime.now().difference(at) < _statsCacheTtl) {
+      return _statsCache!;
+    }
+    final stats = await _loadDashboardStats();
+    _statsCache = stats;
+    _statsCachedAt = DateTime.now();
+    return stats;
+  }
+
   /// Numbers for the admin dashboard: growth, coverage, popularity, diner
   /// demand, reviews and moderation. Only counts and totals are produced,
   /// never one diner's details. Every extended part is best effort: if a
   /// Firestore rule blocks it, that part is reported as unavailable and the
   /// rest of the dashboard still loads.
-  static Future<Map<String, dynamic>> fetchDashboardStats() async {
+  static Future<Map<String, dynamic>> _loadDashboardStats() async {
     final now = DateTime.now();
 
     // ---- Users: growth and moderation state ----

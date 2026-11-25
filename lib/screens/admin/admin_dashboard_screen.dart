@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
@@ -462,19 +463,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   pw.Widget _pdfKpi(_Kpi k) => pw.Expanded(
         child: pw.Container(
-          padding: const pw.EdgeInsets.all(10),
+          padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 11),
           decoration: pw.BoxDecoration(
-            color: _brandLight,
-            borderRadius: pw.BorderRadius.circular(8),
+            color: PdfColors.white,
+            border: pw.Border.all(color: _line),
+            borderRadius: pw.BorderRadius.circular(10),
           ),
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Text(k.value,
                   style: pw.TextStyle(
-                      fontSize: 17,
-                      fontWeight: pw.FontWeight.bold,
-                      color: _brand)),
+                      fontSize: 18, fontWeight: pw.FontWeight.bold, color: _ink)),
               pw.SizedBox(height: 2),
               pw.Text(k.label, style: pw.TextStyle(fontSize: 8.5, color: _muted)),
             ],
@@ -491,11 +491,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       final chunk = kpis.skip(i).take(cols).toList();
       rows.add(pw.Row(children: [
         for (var j = 0; j < chunk.length; j++) ...[
-          if (j > 0) pw.SizedBox(width: 8),
+          if (j > 0) pw.SizedBox(width: 10),
           _pdfKpi(chunk[j]),
         ],
       ]));
-      rows.add(pw.SizedBox(height: 8));
+      rows.add(pw.SizedBox(height: 10));
     }
     return rows;
   }
@@ -514,73 +514,433 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ],
       );
 
-  pw.Widget _pdfBars(_Chart c) {
-    final maxValue = c.rows.isEmpty
-        ? 1.0
-        : c.rows.map((e) => e.value.toDouble()).reduce((a, b) => a > b ? a : b);
-    const trackWidth = 200.0;
+  // -------------------------------------------------------------------
+  // PDF charts: drawn the same way as on the dashboard (donut, line,
+  // columns, bars), with the same colors.
+  // -------------------------------------------------------------------
+
+  static final List<PdfColor> _sliceColors = [
+    PdfColor.fromHex('#FF6B4A'),
+    PdfColor.fromHex('#2F6FED'),
+    PdfColor.fromHex('#22A06B'),
+    PdfColor.fromHex('#F2B01E'),
+    PdfColor.fromHex('#8B5CF6'),
+    PdfColor.fromHex('#14B8A6'),
+    PdfColor.fromHex('#EC4899'),
+    PdfColor.fromHex('#94A3B8'),
+  ];
+  static final _areaFill = PdfColor.fromHex('#FFEDE9');
+
+  String _clip(String text, double width) {
+    final max = (width / 4.8).floor();
+    if (text.length <= max || max < 4) return text;
+    return '${text.substring(0, max - 1)}…';
+  }
+
+  /// Rough height of a card, so the two cards in a row can be the same height.
+  double _pdfChartHeight(_Chart c, double width) {
+    const chrome = 46.0;
+    if (c.rows.isEmpty) return chrome + 14;
+    final n = c.rows.length;
+    switch (c.kind) {
+      case ChartKind.donut:
+        return chrome +
+            (width - 24 >= 330 ? math.max(120.0, 15.0 * n) : 132.0 + 15.0 * n);
+      case ChartKind.line:
+        return chrome + 140;
+      case ChartKind.columns:
+        return chrome + 122;
+      default:
+        return chrome + 17.0 * n;
+    }
+  }
+
+  pw.Widget _pdfCard(_Chart c, double width, {double? minHeight}) {
     return pw.Container(
-      margin: const pw.EdgeInsets.only(bottom: 10),
+      width: width,
+      constraints: pw.BoxConstraints(
+          minHeight: minHeight ?? _pdfChartHeight(c, width)),
       padding: const pw.EdgeInsets.all(12),
       decoration: pw.BoxDecoration(
+        color: PdfColors.white,
         border: pw.Border.all(color: _line),
-        borderRadius: pw.BorderRadius.circular(8),
+        borderRadius: pw.BorderRadius.circular(10),
       ),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
           _pdfSectionTitle(c.title),
-          if (c.rows.isEmpty)
-            pw.Text(c.empty, style: pw.TextStyle(fontSize: 9, color: _muted))
-          else
-            for (final r in c.rows)
-              pw.Padding(
-                padding: const pw.EdgeInsets.only(bottom: 6),
-                child: pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.center,
-                  children: [
-                    pw.SizedBox(
-                      width: 165,
-                      child: pw.Text(r.label,
-                          maxLines: 1,
-                          style: pw.TextStyle(fontSize: 9, color: _ink)),
-                    ),
-                    pw.Container(
-                      width: trackWidth,
-                      height: 7,
-                      decoration: pw.BoxDecoration(
-                        color: _track,
-                        borderRadius: pw.BorderRadius.circular(3.5),
-                      ),
-                      // A value of zero draws nothing; any other value gets at
-                      // least a dot, so a tiny bar never renders as a glitch.
-                      child: (maxValue == 0 || r.value <= 0)
-                          ? null
-                          : pw.Align(
-                              alignment: pw.Alignment.centerLeft,
-                              child: pw.Container(
-                                width: (trackWidth * r.value.toDouble() / maxValue)
-                                    .clamp(7.0, trackWidth)
-                                    .toDouble(),
-                                height: 7,
-                                decoration: pw.BoxDecoration(
-                                  color: _brand,
-                                  borderRadius: pw.BorderRadius.circular(3.5),
-                                ),
-                              ),
-                            ),
-                    ),
-                    pw.SizedBox(width: 8),
-                    pw.Text(r.text,
-                        style: pw.TextStyle(
-                            fontSize: 9,
-                            fontWeight: pw.FontWeight.bold,
-                            color: _ink)),
-                  ],
-                ),
-              ),
+          _pdfChartBody(c, width - 24),
         ],
       ),
+    );
+  }
+
+  pw.Widget _pdfChartBody(_Chart c, double w) {
+    if (c.rows.isEmpty) {
+      return pw.Text(c.empty, style: pw.TextStyle(fontSize: 9, color: _muted));
+    }
+    switch (c.kind) {
+      case ChartKind.donut:
+        return _pdfDonutBody(c, w);
+      case ChartKind.line:
+        return _pdfLineBody(c, w);
+      case ChartKind.columns:
+        return _pdfColumnsBody(c, w);
+      default:
+        return _pdfBarsBody(c, w);
+    }
+  }
+
+  double _maxOf(_Chart c) {
+    var m = 0.0;
+    for (final r in c.rows) {
+      if (r.value.toDouble() > m) m = r.value.toDouble();
+    }
+    return m <= 0 ? 1.0 : m;
+  }
+
+  pw.Widget _pdfBarsBody(_Chart c, double w) {
+    final maxValue = _maxOf(c);
+    final labelW = w >= 400 ? 165.0 : 100.0;
+    final track = w - labelW - 8 - 28;
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        for (final r in c.rows)
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(bottom: 6),
+            child: pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
+              children: [
+                pw.SizedBox(
+                  width: labelW,
+                  child: pw.Text(_clip(r.label, labelW),
+                      maxLines: 1, style: pw.TextStyle(fontSize: 9, color: _ink)),
+                ),
+                pw.Container(
+                  width: track,
+                  height: 7,
+                  decoration: pw.BoxDecoration(
+                    color: _track,
+                    borderRadius: pw.BorderRadius.circular(3.5),
+                  ),
+                  // Zero draws nothing; any other value gets at least a dot.
+                  child: r.value <= 0
+                      ? null
+                      : pw.Align(
+                          alignment: pw.Alignment.centerLeft,
+                          child: pw.Container(
+                            width: (track * r.value.toDouble() / maxValue)
+                                .clamp(7.0, track)
+                                .toDouble(),
+                            height: 7,
+                            decoration: pw.BoxDecoration(
+                              color: _brand,
+                              borderRadius: pw.BorderRadius.circular(3.5),
+                            ),
+                          ),
+                        ),
+                ),
+                pw.SizedBox(width: 8),
+                pw.Text(r.text,
+                    style: pw.TextStyle(
+                        fontSize: 9,
+                        fontWeight: pw.FontWeight.bold,
+                        color: _ink)),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  pw.Widget _pdfDonutBody(_Chart c, double w) {
+    final total = c.rows.fold<double>(0, (a, r) => a + r.value.toDouble());
+    final totalText = total == total.roundToDouble()
+        ? '${total.round()}'
+        : total.toStringAsFixed(1);
+    final wide = w >= 330;
+    final size = wide ? 120.0 : 110.0;
+
+    final donut = pw.SizedBox(
+      width: size,
+      height: size,
+      child: pw.Stack(
+        alignment: pw.Alignment.center,
+        children: [
+          pw.CustomPaint(
+            size: PdfPoint(size, size),
+            painter: (PdfGraphics g, PdfPoint sz) {
+              final cx = sz.x / 2, cy = sz.y / 2;
+              final outer = sz.x / 2, inner = outer * 0.62;
+              void ring(double from, double to, PdfColor color) {
+                const step = math.pi / 60;
+                final n = math.max(2, ((from - to) / step).ceil());
+                g.setFillColor(color);
+                for (var i = 0; i <= n; i++) {
+                  final t = from + (to - from) * i / n;
+                  final x = cx + outer * math.cos(t), y = cy + outer * math.sin(t);
+                  i == 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+                }
+                for (var i = n; i >= 0; i--) {
+                  final t = from + (to - from) * i / n;
+                  g.lineTo(cx + inner * math.cos(t), cy + inner * math.sin(t));
+                }
+                g.closePath();
+                g.fillPath();
+              }
+
+              if (total <= 0) {
+                ring(math.pi / 2, math.pi / 2 - 2 * math.pi + 0.0001, _track);
+                return;
+              }
+              var start = math.pi / 2; // 12 o'clock, then clockwise
+              for (var i = 0; i < c.rows.length; i++) {
+                final v = c.rows[i].value.toDouble();
+                if (v <= 0) continue;
+                final sweep = 2 * math.pi * v / total;
+                // a thin white gap between slices
+                final gap = c.rows.length > 1 ? 0.012 : 0.0;
+                ring(start - gap, start - sweep + gap,
+                    _sliceColors[i % _sliceColors.length]);
+                start -= sweep;
+              }
+            },
+          ),
+          pw.Column(
+            mainAxisSize: pw.MainAxisSize.min,
+            children: [
+              pw.Text(totalText,
+                  style: pw.TextStyle(
+                      fontSize: 16, fontWeight: pw.FontWeight.bold, color: _ink)),
+              pw.Text('total', style: pw.TextStyle(fontSize: 8, color: _muted)),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    final legend = pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      mainAxisSize: pw.MainAxisSize.min,
+      children: [
+        for (var i = 0; i < c.rows.length; i++)
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(bottom: 5),
+            child: pw.Row(
+              children: [
+                pw.Container(
+                  width: 7,
+                  height: 7,
+                  decoration: pw.BoxDecoration(
+                    color: _sliceColors[i % _sliceColors.length],
+                    shape: pw.BoxShape.circle,
+                  ),
+                ),
+                pw.SizedBox(width: 6),
+                pw.Expanded(
+                  child: pw.Text(c.rows[i].label,
+                      maxLines: 1,
+                      style: pw.TextStyle(fontSize: 9, color: _muted)),
+                ),
+                pw.SizedBox(width: 6),
+                pw.Text(
+                  total <= 0
+                      ? c.rows[i].text
+                      : '${c.rows[i].text} (${(c.rows[i].value.toDouble() * 100 / total).round()}%)',
+                  style: pw.TextStyle(
+                      fontSize: 9,
+                      fontWeight: pw.FontWeight.bold,
+                      color: _ink),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+
+    if (wide) {
+      return pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: [
+          donut,
+          pw.SizedBox(width: 26),
+          pw.Expanded(child: legend),
+        ],
+      );
+    }
+    return pw.Column(
+      children: [
+        pw.Center(child: donut),
+        pw.SizedBox(height: 12),
+        legend,
+      ],
+    );
+  }
+
+  pw.Widget _pdfLineBody(_Chart c, double w) {
+    const h = 124.0;
+    const padX = 14.0, base = 4.0, top = h - 18;
+    final n = c.rows.length;
+    final maxV = _maxOf(c);
+    final xs = <double>[
+      for (var i = 0; i < n; i++)
+        n == 1 ? w / 2 : padX + i * (w - 2 * padX) / (n - 1)
+    ];
+    final ys = <double>[
+      for (final r in c.rows)
+        base + (top - base) * (r.value.toDouble() <= 0 ? 0 : r.value.toDouble() / maxV)
+    ];
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.SizedBox(
+          width: w,
+          height: h,
+          child: pw.Stack(
+            children: [
+              pw.CustomPaint(
+                size: PdfPoint(w, h),
+                painter: (PdfGraphics g, PdfPoint sz) {
+                  g.setStrokeColor(_line);
+                  g.setLineWidth(0.6);
+                  g.moveTo(0, base);
+                  g.lineTo(sz.x, base);
+                  g.strokePath();
+
+                  if (n > 1) {
+                    g.setFillColor(_areaFill);
+                    g.moveTo(xs.first, base);
+                    for (var i = 0; i < n; i++) {
+                      g.lineTo(xs[i], ys[i]);
+                    }
+                    g.lineTo(xs.last, base);
+                    g.closePath();
+                    g.fillPath();
+
+                    g.setStrokeColor(_brand);
+                    g.setLineWidth(1.6);
+                    g.moveTo(xs[0], ys[0]);
+                    for (var i = 1; i < n; i++) {
+                      g.lineTo(xs[i], ys[i]);
+                    }
+                    g.strokePath();
+                  }
+                  g.setFillColor(_brand);
+                  for (var i = 0; i < n; i++) {
+                    g.drawEllipse(xs[i], ys[i], 2.6, 2.6);
+                    g.fillPath();
+                  }
+                },
+              ),
+              for (var i = 0; i < n; i++)
+                pw.Positioned(
+                  left: xs[i] - 12,
+                  bottom: ys[i] + 5,
+                  child: pw.SizedBox(
+                    width: 24,
+                    child: pw.Text(c.rows[i].text,
+                        textAlign: pw.TextAlign.center,
+                        style: pw.TextStyle(
+                            fontSize: 8,
+                            fontWeight: pw.FontWeight.bold,
+                            color: _ink)),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        pw.SizedBox(
+          width: w,
+          height: 14,
+          child: pw.Stack(
+            children: [
+              for (var i = 0; i < n; i++)
+                pw.Positioned(
+                  left: xs[i] - 16,
+                  top: 3,
+                  child: pw.SizedBox(
+                    width: 32,
+                    child: pw.Text(c.rows[i].label,
+                        maxLines: 1,
+                        textAlign: pw.TextAlign.center,
+                        style: pw.TextStyle(fontSize: 7, color: _muted)),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _pdfColumnsBody(_Chart c, double w) {
+    const h = 100.0, maxBar = 80.0;
+    final n = c.rows.length;
+    final slot = w / n;
+    final barW = math.min(slot * 0.6, 34.0);
+    final maxV = _maxOf(c);
+    double barH(_Row r) =>
+        r.value.toDouble() <= 0 ? 0 : math.max(2.0, maxBar * r.value.toDouble() / maxV);
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.SizedBox(
+          width: w,
+          height: h,
+          child: pw.Stack(
+            children: [
+              pw.CustomPaint(
+                size: PdfPoint(w, h),
+                painter: (PdfGraphics g, PdfPoint sz) {
+                  g.setStrokeColor(_line);
+                  g.setLineWidth(0.6);
+                  g.moveTo(0, 0.3);
+                  g.lineTo(sz.x, 0.3);
+                  g.strokePath();
+                  g.setFillColor(_brand);
+                  for (var i = 0; i < n; i++) {
+                    final bh = barH(c.rows[i]);
+                    if (bh <= 0) continue;
+                    g.drawRRect(slot * i + (slot - barW) / 2, 0.6, barW, bh, 3, 3);
+                    g.fillPath();
+                  }
+                },
+              ),
+              for (var i = 0; i < n; i++)
+                pw.Positioned(
+                  left: slot * i + slot / 2 - 14,
+                  bottom: barH(c.rows[i]) + 4,
+                  child: pw.SizedBox(
+                    width: 28,
+                    child: pw.Text(c.rows[i].text,
+                        textAlign: pw.TextAlign.center,
+                        style: pw.TextStyle(
+                            fontSize: 8,
+                            fontWeight: pw.FontWeight.bold,
+                            color: _ink)),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        pw.SizedBox(height: 4),
+        pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            for (final r in c.rows)
+              pw.SizedBox(
+                width: slot,
+                child: pw.Text(r.label,
+                    textAlign: pw.TextAlign.center,
+                    style: pw.TextStyle(fontSize: 7.5, color: _muted)),
+              ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -640,9 +1000,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       ),
     ];
 
+    final contentWidth = format.width - 80;
+    const gap = 12.0;
+    final half = (contentWidth - gap) / 2;
     for (final g in _groups(s)) {
-      // Heading, number tiles and the first chart stay together, so a heading
-      // is never left alone at the bottom of a page.
+      // Heading, number tiles and the first row of charts stay together, so a
+      // heading is never left alone at the bottom of a page.
       final head = <pw.Widget>[
         _pdfGroupTitle(g.title, g.subtitle),
         ..._pdfKpiRows(g.kpis),
@@ -652,12 +1015,35 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             child: pw.Text(n, style: pw.TextStyle(fontSize: 8.5, color: _muted)),
           ),
       ];
-      if (g.charts.isEmpty) {
+      // Charts two per row, like the dashboard; a lone last chart is full width.
+      final chartRows = <pw.Widget>[];
+      for (var i = 0; i < g.charts.length; i += 2) {
+        final a = g.charts[i];
+        final b = i + 1 < g.charts.length ? g.charts[i + 1] : null;
+        chartRows.add(pw.Padding(
+          padding: const pw.EdgeInsets.only(bottom: gap),
+          child: b == null
+              ? _pdfCard(a, contentWidth)
+              : pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    _pdfCard(a, half,
+                        minHeight: math.max(
+                            _pdfChartHeight(a, half), _pdfChartHeight(b, half))),
+                    pw.SizedBox(width: gap),
+                    _pdfCard(b, half,
+                        minHeight: math.max(
+                            _pdfChartHeight(a, half), _pdfChartHeight(b, half))),
+                  ],
+                ),
+        ));
+      }
+      if (chartRows.isEmpty) {
         body.add(_keep(head));
       } else {
-        body.add(_keep([...head, _pdfBars(g.charts.first)]));
-        for (final c in g.charts.skip(1)) {
-          body.add(_keep([_pdfBars(c)]));
+        body.add(_keep([...head, chartRows.first]));
+        for (final r in chartRows.skip(1)) {
+          body.add(_keep([r]));
         }
       }
     }
