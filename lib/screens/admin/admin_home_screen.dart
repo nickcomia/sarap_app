@@ -8,6 +8,7 @@ import 'admin_dashboard_screen.dart';
 import 'admin_restaurants_screen.dart';
 import 'admin_reviews_screen.dart';
 import 'admin_users_screen.dart';
+import 'analytics_charts.dart';
 
 /// Admin dashboard shell: a dark sidebar on wide screens (a slide-out menu
 /// on narrow ones) with the selected page shown on the right.
@@ -383,6 +384,26 @@ class _OverviewPageState extends State<_OverviewPage> {
     return '${days[d.weekday - 1]}, ${months[d.month - 1]} ${d.day}, ${d.year}';
   }
 
+  int _n(String k) => (_stats?[k] as num?)?.toInt() ?? 0;
+
+  List<ChartRow> _rows(dynamic v) => ((v as List?) ?? const []).map((e) {
+        final m = e as Map;
+        final c = (m['count'] as num).toInt();
+        return ChartRow(m['name'].toString(), c, '$c');
+      }).toList();
+
+  /// Two charts per row on wide screens, one per row on narrow ones.
+  Widget _grid(List<Widget> items) => LayoutBuilder(builder: (context, c) {
+        final two = c.maxWidth >= 780;
+        const gap = 14.0;
+        final w = two ? (c.maxWidth - gap) / 2 : c.maxWidth;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [for (final i in items) SizedBox(width: w, child: i)],
+        );
+      });
+
   @override
   Widget build(BuildContext context) {
     final s = _stats;
@@ -458,10 +479,80 @@ class _OverviewPageState extends State<_OverviewPage> {
                     card(Icons.restaurant_menu, 'Menu items', '${s['menuItems']}'),
                     card(Icons.favorite_border, 'Saved places', '${s['totalSaves']}',
                         note:
-                            'Avg rating ${(s['avgRating'] as double).toStringAsFixed(1)}'),
+                            'Avg rating ${(s['avgRating'] as num).toDouble().toStringAsFixed(1)}'),
                   ],
                 );
               }),
+
+            // Analytics summary (second row of numbers + four graphs)
+            if (s != null) ...[
+              const SizedBox(height: 14),
+              LayoutBuilder(builder: (context, c) {
+                final cols = c.maxWidth >= 860 ? 4 : (c.maxWidth >= 520 ? 2 : 1);
+                const gap = 14.0;
+                final w = (c.maxWidth - gap * (cols - 1)) / cols;
+                final profilesOk = s['profilesOk'] == true;
+                final reviewsOk = s['reviewsOk'] == true;
+                final appealsOk = s['appealsOk'] == true;
+                final pc = _n('profileCount');
+                final rate = pc == 0 ? 0 : (_n('onboardedCount') * 100 / pc).round();
+                Widget k(IconData i, String l, String v, {String? note}) => SizedBox(
+                    width: w,
+                    child: _KpiCard(icon: i, label: l, value: v, note: note));
+                return Wrap(spacing: gap, runSpacing: gap, children: [
+                  k(Icons.pending_actions_outlined, 'Reviews waiting',
+                      reviewsOk ? '${_n('reviewsPending')}' : '—',
+                      note: reviewsOk
+                          ? '${_n('reviewsApproved')} approved, ${_n('reviewsRejected')} rejected'
+                          : null),
+                  k(Icons.forum_outlined, 'Appeals waiting',
+                      appealsOk ? '${_n('appealsPending')}' : '—'),
+                  k(Icons.task_alt_outlined, 'Finished onboarding',
+                      profilesOk ? '$rate%' : '—',
+                      note: profilesOk
+                          ? '${_n('onboardedCount')} of $pc diners'
+                          : null),
+                  k(Icons.warning_amber_outlined, 'Users with strikes',
+                      '${_n('usersWithStrikes')}',
+                      note:
+                          '${_n('bannedNow')} banned, ${_n('disabledUsers')} disabled'),
+                ]);
+              }),
+              const SizedBox(height: 30),
+              Text('Analytics summary',
+                  style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 14),
+              _grid([
+                ChartCard(
+                    title: 'New users per week',
+                    kind: ChartKind.line,
+                    rows: _rows(s['signups']),
+                    empty: 'No sign-ups yet.'),
+                ChartCard(
+                    title: 'Rating distribution',
+                    kind: ChartKind.columns,
+                    rows: _rows(s['ratingBuckets']),
+                    empty: 'No ratings yet.'),
+                ChartCard(
+                    title: 'Restaurants by type',
+                    kind: ChartKind.donut,
+                    rows: _rows(s['byType']),
+                    empty: 'No restaurants yet.'),
+                ChartCard(
+                    title: 'Most saved restaurants',
+                    rows: _rows(s['mostSaved']).take(5).toList(),
+                    empty: 'No saved places yet.'),
+              ]),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => widget.onNavigate(3),
+                  icon: const Icon(Icons.insights_outlined, size: 18),
+                  label: const Text('See the full analytics and insights'),
+                ),
+              ),
+            ],
 
             const SizedBox(height: 30),
             Text('Quick actions', style: Theme.of(context).textTheme.titleLarge),

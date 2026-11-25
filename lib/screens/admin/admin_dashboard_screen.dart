@@ -6,6 +6,7 @@ import 'package:printing/printing.dart';
 import '../../theme.dart';
 import '../../services/firebase_service.dart';
 import '../../services/pdf_actions.dart';
+import 'analytics_charts.dart';
 
 /// Analytics dashboard for the administrator.
 ///
@@ -45,7 +46,8 @@ class _Chart {
   final String title;
   final List<_Row> rows;
   final String empty;
-  const _Chart(this.title, this.rows, this.empty);
+  final ChartKind kind; // how the chart is drawn on screen
+  const _Chart(this.title, this.rows, this.empty, [this.kind = ChartKind.bars]);
 }
 
 class _Group {
@@ -123,6 +125,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final avgBudget = (s['avgBudget'] as num?)?.toDouble();
     final avgReview = (s['avgReviewRating'] as num?)?.toDouble();
 
+    final activeUsers =
+        _n(s, 'users') - _n(s, 'bannedNow') - _n(s, 'disabledUsers');
+
     String dash(bool ok, String v) => ok ? v : '—';
 
     return [
@@ -143,9 +148,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ],
         [
           _Chart('New users per week (last 8 weeks)', _countRows(s['signups']),
-              'No sign-ups yet.'),
+              'No sign-ups yet.', ChartKind.line),
           _Chart('Health goals of diners', _countRows(s['goalMix']),
-              'No diner has finished onboarding yet.'),
+              'No diner has finished onboarding yet.', ChartKind.donut),
+          _Chart(
+            'Account status',
+            [
+              _Row('Active', activeUsers, '$activeUsers'),
+              _Row('Banned now', _n(s, 'bannedNow'), '${_n(s, 'bannedNow')}'),
+              _Row('Disabled', _n(s, 'disabledUsers'),
+                  '${_n(s, 'disabledUsers')}'),
+            ],
+            'No users yet.',
+            ChartKind.donut,
+          ),
         ],
         [
           if (!profilesOk)
@@ -171,11 +187,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ],
         [
           _Chart('Restaurants by type', _countRows(s['byType']),
-              'No restaurants yet.'),
+              'No restaurants yet.', ChartKind.donut),
           _Chart('Restaurants by cuisine', _countRows(s['byCuisine']),
               'No restaurants yet.'),
           _Chart('Rating distribution', _countRows(s['ratingBuckets']),
-              'No ratings yet.'),
+              'No ratings yet.', ChartKind.columns),
           _Chart('Highest rated', _ratingRows(s['topRated']), 'No ratings yet.'),
           _Chart('Lowest rated', _ratingRows(s['lowRated']), 'No ratings yet.'),
         ],
@@ -243,8 +259,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               dash(appealsOk, '${s['appealsPending']}')),
         ],
         [
+          _Chart(
+            'Reviews by status',
+            [
+              _Row('Approved', _n(s, 'reviewsApproved'),
+                  '${_n(s, 'reviewsApproved')}'),
+              _Row('Waiting', _n(s, 'reviewsPending'),
+                  '${_n(s, 'reviewsPending')}'),
+              _Row('Rejected', _n(s, 'reviewsRejected'),
+                  '${_n(s, 'reviewsRejected')}'),
+            ],
+            reviewsOk ? 'No reviews yet.' : 'Review numbers are unavailable.',
+            ChartKind.donut,
+          ),
           _Chart('Moderation actions taken', _countRows(s['actionsByType']),
-              actionsOk ? 'No moderation actions yet.' : 'Action log is unavailable.'),
+              actionsOk ? 'No moderation actions yet.' : 'Action log is unavailable.',
+              ChartKind.donut),
           _Chart(
             'Appeals by decision',
             [
@@ -253,6 +283,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               _Row('Rejected', _n(s, 'appealsRejected'), '${_n(s, 'appealsRejected')}'),
             ],
             'No appeals yet.',
+            ChartKind.columns,
           ),
         ],
         [
@@ -794,7 +825,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               runSpacing: gap,
               children: [
                 for (final ch in g.charts)
-                  SizedBox(width: w, child: _BarSection(chart: ch)),
+                  SizedBox(
+                    width: w,
+                    child: ChartCard(
+                      title: ch.title,
+                      kind: ch.kind,
+                      empty: ch.empty,
+                      rows: [
+                        for (final r in ch.rows)
+                          ChartRow(r.label, r.value, r.text)
+                      ],
+                    ),
+                  ),
               ],
             );
           }),
@@ -858,69 +900,6 @@ class _StatCard extends StatelessWidget {
           ],
         );
       }),
-    );
-  }
-}
-
-class _BarSection extends StatelessWidget {
-  final _Chart chart;
-  const _BarSection({required this.chart});
-
-  @override
-  Widget build(BuildContext context) {
-    final phone = MediaQuery.of(context).size.width < 600;
-    final rows = chart.rows;
-    final maxValue = rows.isEmpty
-        ? 1.0
-        : rows.map((e) => e.value.toDouble()).reduce((a, b) => a > b ? a : b);
-    return Container(
-      padding: EdgeInsets.all(phone ? 14 : 18),
-      decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: AppShadows.soft,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(chart.title,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-          const SizedBox(height: 14),
-          if (rows.isEmpty)
-            Text(chart.empty,
-                style: const TextStyle(color: AppColors.muted, fontSize: 13))
-          else
-            for (final r in rows)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: phone ? 96 : 140,
-                      child: Text(r.label,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 13)),
-                    ),
-                    Expanded(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: LinearProgressIndicator(
-                          value: maxValue == 0 ? 0 : r.value.toDouble() / maxValue,
-                          minHeight: 12,
-                          backgroundColor: AppColors.chipBg,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(r.text,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 13)),
-                  ],
-                ),
-              ),
-        ],
-      ),
     );
   }
 }
