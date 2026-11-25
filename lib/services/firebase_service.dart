@@ -736,45 +736,122 @@ class FirebaseService {
 
   // ---- Admin: dashboard, users, reports, content ----
 
-  /// Numbers for the admin dashboard.
+  static const _monthNames = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+  static String _shortDate(DateTime d) => '${_monthNames[d.month - 1]} ${d.day}';
+
+  /// Counts map -> list of {name, count}, biggest first.
+  static List<Map<String, dynamic>> _ranked(Map<String, int> m, {int? take}) {
+    final list = m.entries
+        .map((e) => <String, dynamic>{'name': e.key, 'count': e.value})
+        .toList()
+      ..sort((a, b) => (b['count'] as int).compareTo(a['count'] as int));
+    return take == null ? list : list.take(take).toList();
+  }
+
+  /// Numbers for the admin dashboard: growth, coverage, popularity, diner
+  /// demand, reviews and moderation. Only counts and totals are produced,
+  /// never one diner's details. Every extended part is best effort: if a
+  /// Firestore rule blocks it, that part is reported as unavailable and the
+  /// rest of the dashboard still loads.
   static Future<Map<String, dynamic>> fetchDashboardStats() async {
-    final users = await _db.collection('users').count().get();
+    final now = DateTime.now();
 
+    // ---- Users: growth and moderation state ----
+    final usersSnap = await _db.collection('users').get();
     var newUsers = 0;
-    try {
-      final weekAgo =
-          Timestamp.fromDate(DateTime.now().subtract(const Duration(days: 7)));
-      final nu = await _db
-          .collection('users')
-          .where('createdAt', isGreaterThanOrEqualTo: weekAgo)
-          .count()
-          .get();
-      newUsers = nu.count ?? 0;
-    } catch (_) {}
-
-    final restSnap = await _db.collection('restaurants').get();
-    final items = await _db.collectionGroup('menuItems').count().get();
-
-    final names = <String, String>{};
-    final typeCounts = <String, int>{};
-    var ratingSum = 0.0;
-    var ratingN = 0;
-    var hidden = 0;
-    for (final d in restSnap.docs) {
+    final weekCounts = List<int>.filled(8, 0);
+    var withStrikes = 0, bannedNow = 0, disabledUsers = 0, totalStrikes = 0;
+    for (final d in usersSnap.docs) {
       final m = d.data();
-      names[d.id] = (m['name'] ?? '').toString();
-      final type = (m['type'] ?? 'Other').toString();
-      typeCounts[type] = (typeCounts[type] ?? 0) + 1;
-      final rating = (m['rating'] as num?)?.toDouble();
-      if (rating != null && rating > 0) {
-        ratingSum += rating;
-        ratingN++;
+      final ts = m['createdAt'];
+      if (ts is Timestamp) {
+        final days = now.difference(ts.toDate()).inDays;
+        if (days < 7) newUsers++;
+        final w = days ~/ 7;
+        if (w >= 0 && w < 8) weekCounts[w]++;
       }
-      if (m['available'] == false) hidden++;
+      final strikes = _asInt(m['strikes']);
+      if (strikes > 0) {
+        withStrikes++;
+        totalStrikes += strikes;
+      }
+      final b = m['bannedUntil'];
+      if (b is Timestamp && b.toDate().isAfter(now)) bannedNow++;
+      if (m['status'] == 'disabled') disabledUsers++;
+    }
+    final signups = [
+      for (var i = 7; i >= 0; i--)
+        <String, dynamic>{
+          'name': _shortDate(now.subtract(Duration(days: 7 * i + 6))),
+          'count': weekCounts[i],
+        }
+    ];
+
+    // ---- Restaurants and menus ----
+    final restSnap = await _db.collection('restaurants').get();
+    final itemsSnap = await _db.collectionGroup('menuItems').get();
+    final itemsPer = <String, int>{};
+    for (final d in itemsSnap.docs) {
+      final rid = d.reference.parent.parent!.id;
+      itemsPer[rid] = (itemsPer[rid] ?? 0) + 1;
     }
 
-    // How many users saved each restaurant (needs the admin to be allowed
-    // to read every user's "saved" list; if rules block it we report that).
+    final names = <String, String>{};
+    final cuisineOf = <String, String>{};
+    final typeCounts = <String, int>{};
+    final cuisineCounts = <String, int>{};
+    final tagSupply = <String, int>{};
+    final rated = <Map<String, dynamic>>[];
+    final noMenuNames = <String>[];
+    final buckets = <String, int>{
+      '4.5 and above': 0,
+      '4.0 to 4.4': 0,
+      '3.0 to 3.9': 0,
+      'Below 3.0': 0,
+      'Not rated': 0,
+    };
+    var ratingSum = 0.0, ratingN = 0, hidden = 0;
+    for (final d in restSnap.docs) {
+      final m = d.data();
+      final name = (m['name'] ?? '').toString();
+      names[d.id] = name;
+      final type = (m['type'] ?? 'Other').toString();
+      typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+      final cuisine = (m['cuisine'] ?? 'Other').toString();
+      cuisineOf[d.id] = cuisine;
+      cuisineCounts[cuisine] = (cuisineCounts[cuisine] ?? 0) + 1;
+      for (final t in _asStringList(m['tags'])) {
+        final k = t.toLowerCase().trim();
+        if (k.isNotEmpty) tagSupply[k] = (tagSupply[k] ?? 0) + 1;
+      }
+      final rating = (m['rating'] as num?)?.toDouble() ?? 0;
+      if (rating > 0) {
+        ratingSum += rating;
+        ratingN++;
+        rated.add({'name': name, 'rating': rating});
+        if (rating >= 4.5) {
+          buckets['4.5 and above'] = buckets['4.5 and above']! + 1;
+        } else if (rating >= 4.0) {
+          buckets['4.0 to 4.4'] = buckets['4.0 to 4.4']! + 1;
+        } else if (rating >= 3.0) {
+          buckets['3.0 to 3.9'] = buckets['3.0 to 3.9']! + 1;
+        } else {
+          buckets['Below 3.0'] = buckets['Below 3.0']! + 1;
+        }
+      } else {
+        buckets['Not rated'] = buckets['Not rated']! + 1;
+      }
+      if (m['available'] == false) hidden++;
+      if ((itemsPer[d.id] ?? 0) == 0) noMenuNames.add(name);
+    }
+    rated.sort((a, b) => (b['rating'] as double).compareTo(a['rating'] as double));
+    final topRated = rated.take(5).toList();
+    final lowRated = rated.reversed.take(5).toList();
+
+    // ---- Saved places (needs the admin read rule for "saved") ----
     final saved = <String, int>{};
     var savedOk = true;
     try {
@@ -785,27 +862,188 @@ class FirebaseService {
     } catch (_) {
       savedOk = false;
     }
+    final savesByCuisine = <String, int>{};
+    final mostSaved = <String, int>{};
+    final noSaveNames = <String>[];
+    if (savedOk) {
+      saved.forEach((id, n) {
+        final c = cuisineOf[id];
+        if (c != null) savesByCuisine[c] = (savesByCuisine[c] ?? 0) + n;
+        mostSaved[names[id] ?? id] = n;
+      });
+      for (final id in names.keys) {
+        if (!saved.containsKey(id)) noSaveNames.add(names[id]!);
+      }
+    }
 
-    final mostSaved = saved.entries
-        .map((e) => {'name': names[e.key] ?? e.key, 'count': e.value})
-        .toList()
-      ..sort((a, b) => (b['count'] as int).compareTo(a['count'] as int));
-    final byType = typeCounts.entries
-        .map((e) => {'name': e.key, 'count': e.value})
-        .toList()
-      ..sort((a, b) => (b['count'] as int).compareTo(a['count'] as int));
+    // ---- Diner profiles: demand (best effort) ----
+    var profilesOk = true;
+    var profileCount = 0, onboarded = 0;
+    var budgetSum = 0.0, budgetN = 0;
+    final goalMix = <String, int>{};
+    final demandCuisines = <String, int>{};
+    final demandDiets = <String, int>{};
+    try {
+      final ps = await _db.collection('profiles').get();
+      profileCount = ps.docs.length;
+      const goalLabels = {
+        'lose': 'Lose weight',
+        'maintain': 'Maintain weight',
+        'gain': 'Gain weight',
+      };
+      for (final d in ps.docs) {
+        final m = d.data();
+        if (m['onboardingCompleted'] == false) continue;
+        onboarded++;
+        final g = goalLabels[m['healthGoal']];
+        if (g != null) goalMix[g] = (goalMix[g] ?? 0) + 1;
+        for (final c in _asStringList(m['cuisines'])) {
+          demandCuisines[c] = (demandCuisines[c] ?? 0) + 1;
+        }
+        for (final c in _asStringList(m['dietaryRestrictions'])) {
+          demandDiets[c] = (demandDiets[c] ?? 0) + 1;
+        }
+        final b = (m['maxBudget'] as num?)?.toDouble();
+        if (b != null && b > 0) {
+          budgetSum += b;
+          budgetN++;
+        }
+      }
+    } catch (_) {
+      profilesOk = false;
+    }
+
+    // ---- Meal plans (best effort) ----
+    var plansOk = true;
+    final planUsers = <String>{};
+    try {
+      final mp = await _db.collectionGroup('mealPlan').get();
+      for (final d in mp.docs) {
+        if (d.data()['dishName'] != null) {
+          planUsers.add(d.reference.parent.parent!.id);
+        }
+      }
+    } catch (_) {
+      plansOk = false;
+    }
+
+    // ---- Reviews (best effort) ----
+    var reviewsOk = true;
+    var rApproved = 0, rPending = 0, rRejected = 0;
+    var rSum = 0.0;
+    final reviewers = <String>{};
+    final reviewedCounts = <String, int>{};
+    try {
+      final rs = await _db.collection('reviews').get();
+      for (final d in rs.docs) {
+        final m = d.data();
+        reviewers.add((m['userId'] ?? '').toString());
+        final st = m['status'];
+        if (st == 'approved') {
+          rApproved++;
+          rSum += _asInt(m['rating']).toDouble();
+          final n = names[m['restaurantId']] ?? (m['restaurantName'] ?? '').toString();
+          if (n.isNotEmpty) reviewedCounts[n] = (reviewedCounts[n] ?? 0) + 1;
+        } else if (st == 'rejected') {
+          rRejected++;
+        } else {
+          rPending++;
+        }
+      }
+    } catch (_) {
+      reviewsOk = false;
+    }
+
+    // ---- Appeals and moderation actions (best effort) ----
+    var appealsOk = true;
+    var aPending = 0, aApproved = 0, aRejected = 0;
+    try {
+      final as = await _db.collection('appeals').get();
+      for (final d in as.docs) {
+        final st = d.data()['status'];
+        if (st == 'approved') {
+          aApproved++;
+        } else if (st == 'rejected') {
+          aRejected++;
+        } else {
+          aPending++;
+        }
+      }
+    } catch (_) {
+      appealsOk = false;
+    }
+    var actionsOk = true;
+    final actionCounts = <String, int>{};
+    try {
+      final ms = await _db.collection('moderationActions').get();
+      const actionLabels = {
+        'warning': 'Warnings',
+        'temporary_ban': 'Temporary bans',
+        'disabled': 'Accounts disabled',
+      };
+      for (final d in ms.docs) {
+        final a = d.data()['action']?.toString() ?? 'other';
+        final label = actionLabels[a] ?? 'Other actions';
+        actionCounts[label] = (actionCounts[label] ?? 0) + 1;
+      }
+    } catch (_) {
+      actionsOk = false;
+    }
 
     return {
-      'users': users.count ?? 0,
+      // headline numbers (used by the Overview page too)
+      'users': usersSnap.docs.length,
       'newUsers': newUsers,
       'restaurants': restSnap.docs.length,
       'hiddenRestaurants': hidden,
-      'menuItems': items.count ?? 0,
+      'menuItems': itemsSnap.docs.length,
       'avgRating': ratingN == 0 ? 0.0 : ratingSum / ratingN,
-      'byType': byType,
-      'mostSaved': mostSaved.take(5).toList(),
+      'byType': _ranked(typeCounts),
+      'mostSaved': _ranked(mostSaved, take: 10),
       'totalSaves': saved.values.fold<int>(0, (a, b) => a + b),
       'savedOk': savedOk,
+      // growth and coverage
+      'signups': signups,
+      'byCuisine': _ranked(cuisineCounts),
+      'ratingBuckets': buckets.entries
+          .map((e) => <String, dynamic>{'name': e.key, 'count': e.value})
+          .toList(),
+      'topRated': topRated,
+      'lowRated': lowRated,
+      'noMenuCount': noMenuNames.length,
+      'noMenuNames': noMenuNames.take(6).toList(),
+      'noSaveCount': noSaveNames.length,
+      'noSaveNames': noSaveNames.take(6).toList(),
+      'savesByCuisine': _ranked(savesByCuisine),
+      'tagSupply': tagSupply,
+      // diner demand
+      'profilesOk': profilesOk,
+      'profileCount': profileCount,
+      'onboardedCount': onboarded,
+      'goalMix': _ranked(goalMix),
+      'demandCuisines': _ranked(demandCuisines, take: 8),
+      'demandDiets': _ranked(demandDiets, take: 8),
+      'avgBudget': budgetN == 0 ? null : budgetSum / budgetN,
+      'plansOk': plansOk,
+      'usersWithPlan': planUsers.length,
+      // reviews and moderation
+      'reviewsOk': reviewsOk,
+      'reviewsApproved': rApproved,
+      'reviewsPending': rPending,
+      'reviewsRejected': rRejected,
+      'avgReviewRating': rApproved == 0 ? null : rSum / rApproved,
+      'reviewers': reviewers.where((e) => e.isNotEmpty).length,
+      'mostReviewed': _ranked(reviewedCounts, take: 5),
+      'usersWithStrikes': withStrikes,
+      'totalStrikes': totalStrikes,
+      'bannedNow': bannedNow,
+      'disabledUsers': disabledUsers,
+      'appealsOk': appealsOk,
+      'appealsPending': aPending,
+      'appealsApproved': aApproved,
+      'appealsRejected': aRejected,
+      'actionsOk': actionsOk,
+      'actionsByType': _ranked(actionCounts),
     };
   }
 

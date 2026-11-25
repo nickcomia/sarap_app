@@ -29,6 +29,8 @@ dependencies:
   printing: ^5.15.1
   web: ^1.1.1
   file_picker: ^8.1.4
+  flutter_map: ^8.3.2
+  latlong2: ^0.10.1
 
 dev_dependencies:
   flutter_test:
