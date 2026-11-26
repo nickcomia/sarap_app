@@ -212,7 +212,7 @@ class _Sidebar extends StatelessWidget {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: Image.asset(
-                      'assets/icons/icon.jpg',
+                      'assets/icons/icon_logo.jpg',
                       width: 72,
                       height: 56,
                       fit: BoxFit.cover,
@@ -226,7 +226,7 @@ class _Sidebar extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
-                    child: Text('Admin console',
+                    child: Text('SARAPAdmin Console',
                         style: TextStyle(
                             color: Colors.white70,
                             fontSize: 13,
