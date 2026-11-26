@@ -484,7 +484,12 @@ class MatchingEngine {
     List<MenuItem> allItems,
     Map<String, String> restaurantNamesById,
   ) {
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    // Seven days in a row, starting today, so every day has a real date.
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final now = DateTime.now();
+    final dates = [
+      for (var i = 0; i < 7; i++) DateTime(now.year, now.month, now.day + i)
+    ];
     final rand = Random();
     final target = profile.dailyCalorieTarget.clamp(1200, 4000);
 
@@ -496,7 +501,7 @@ class MatchingEngine {
       topBySlot[slot] = _topThree(profile, candidates, calTarget);
     }
 
-    return days.map((day) {
+    return dates.map((date) {
       final meals = MealSlot.values.map((slot) {
         final top = topBySlot[slot]!;
         if (top.isEmpty) return MealEntry(slot: slot);
@@ -508,7 +513,8 @@ class MatchingEngine {
           calories: chosen.calories,
         );
       }).toList();
-      return DayPlan(dayLabel: day, meals: meals);
+      return DayPlan(
+          dayLabel: weekdays[date.weekday - 1], date: date, meals: meals);
     }).toList();
   }
 }

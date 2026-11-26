@@ -29,11 +29,12 @@ class ReportService {
       buffer.writeln('7-DAY MEAL PLAN');
       for (final day in mealPlan) {
         buffer.writeln('-' * 30);
-        buffer.writeln(day.dayLabel);
+        buffer.writeln(day.displayLabel);
         for (final meal in day.meals) {
           if (meal.isFilled) {
             buffer.writeln(
-                '  ${meal.slot.label}: ${meal.dishName} (${meal.restaurantName}) — ${meal.calories} kcal');
+                '  ${meal.slot.label}: ${meal.dishName} (${meal.restaurantName}) — ${meal.calories} kcal'
+                '${meal.eaten ? ' [eaten]' : ''}');
           } else {
             buffer.writeln('  ${meal.slot.label}: not yet picked');
           }

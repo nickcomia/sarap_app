@@ -371,9 +371,40 @@ class MealEntry {
 }
 
 class DayPlan {
-  final String dayLabel; // Mon, Tue, ...
+  final String dayLabel; // Mon, Tue, ... (the weekday of [date])
   final List<MealEntry> meals;
-  DayPlan({required this.dayLabel, required this.meals});
+
+  /// The calendar date of this day. A plan covers 7 days in a row starting
+  /// from the day it was made. Null only for plans saved by older versions.
+  final DateTime? date;
+  DayPlan({required this.dayLabel, required this.meals, this.date});
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+
+  /// "2026-11-26", or '' when there is no date.
+  String get dateKey {
+    final d = date;
+    if (d == null) return '';
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${d.year}-${two(d.month)}-${two(d.day)}';
+  }
+
+  /// "Thu Nov 26", or just "Thu" when there is no date.
+  String get displayLabel {
+    final d = date;
+    if (d == null) return dayLabel;
+    return '$dayLabel ${_months[d.month - 1]} ${d.day}';
+  }
+
+  bool get isToday {
+    final d = date;
+    if (d == null) return false;
+    final n = DateTime.now();
+    return d.year == n.year && d.month == n.month && d.day == n.day;
+  }
 
   int get totalCalories =>
       meals.fold(0, (sum, m) => sum + (m.calories ?? 0));
@@ -441,6 +472,9 @@ class MealChoice {
   final MealSlot slot;
   final String dayLabel;
 
+  /// The plan day's calendar date as "2026-11-26". Null for older records.
+  final String? date;
+
   /// 'picked' (swap/fill picker), 'manual' (log sheet) or 'restaurant_page'.
   final String source;
   final bool homeCooked;
@@ -454,6 +488,7 @@ class MealChoice {
     required this.calories,
     required this.slot,
     required this.dayLabel,
+    this.date,
     required this.source,
     this.homeCooked = false,
   });
@@ -467,6 +502,7 @@ class MealChoice {
         'calories': calories,
         'slot': slot.name,
         'dayLabel': dayLabel,
+        'date': date,
         'source': source,
         'homeCooked': homeCooked,
       };
@@ -487,6 +523,7 @@ class MealChoice {
         orElse: () => MealSlot.lunch,
       ),
       dayLabel: (m['dayLabel'] ?? '').toString(),
+      date: m['date'] as String?,
       source: (m['source'] ?? 'manual').toString(),
       homeCooked: m['homeCooked'] == true,
     );

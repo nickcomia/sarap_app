@@ -10,6 +10,7 @@ import '../services/report_service.dart';
 import 'onboarding/onboarding_flow.dart';
 import 'splash_screen.dart';
 import 'about_screen.dart';
+import 'meal_history_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -126,6 +127,13 @@ class ProfileScreen extends StatelessWidget {
             icon: Icons.calendar_month_outlined,
             label: 'My meal plans',
             onTap: () => state.setHomeTab(1),
+          ),
+          ProfileMenuTile(
+            icon: Icons.history,
+            label: 'Meal history',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MealHistoryScreen()),
+            ),
           ),
           ProfileMenuTile(
             icon: Icons.favorite_border,

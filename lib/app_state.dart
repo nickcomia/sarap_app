@@ -471,7 +471,7 @@ class AppState extends ChangeNotifier {
 
       // Not awaited: building a plan fetches every menu, so it must not
       // hold up the first screen.
-      if (!hasAnyMeal) generateMealPlan();
+      if (!hasAnyMeal || planIsStale) generateMealPlan();
     } catch (_) {
       // Offline or Firebase unreachable — keep whatever local state exists
       // rather than blocking app startup.
@@ -835,25 +835,55 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Rebuilds the full 7-day × 4-slot grid every time — any slot that
-  /// doesn't have a saved doc in Firestore just stays empty ("Tap to
-  /// log..."), instead of the whole day/slot silently disappearing.
+  static const _weekdayOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  /// An empty plan for the next 7 days, starting today (no Firestore write).
+  List<DayPlan> _emptyWeekFromToday() {
+    final now = DateTime.now();
+    return [
+      for (var i = 0; i < 7; i++)
+        () {
+          final d = DateTime(now.year, now.month, now.day + i);
+          return DayPlan(
+            dayLabel: _weekdayOrder[d.weekday - 1],
+            date: d,
+            meals: MealSlot.values.map((s) => MealEntry(slot: s)).toList(),
+          );
+        }()
+    ];
+  }
+
+  /// True when the saved plan should be replaced: it was saved without dates
+  /// (older version), or its last day is already in the past.
+  bool get planIsStale {
+    if (mealPlan.isEmpty) return false;
+    if (mealPlan.any((d) => d.date == null)) return true;
+    final last = mealPlan.map((d) => d.date!).reduce((a, b) => a.isAfter(b) ? a : b);
+    final now = DateTime.now();
+    return last.isBefore(DateTime(now.year, now.month, now.day));
+  }
+
+  /// Rebuilds the plan from the saved slot documents, one day for each saved
+  /// date, in date order. Any slot without a saved doc stays empty ("Tap to
+  /// log..."), so nothing silently disappears.
   Future<void> loadMealPlanFromServer() async {
     if (!isLoggedIn) return;
     try {
       final entries = await FirebaseService.fetchMealPlanEntries();
-      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-      final byDay = <String, Map<MealSlot, MealEntry>>{
-        for (final d in days)
-          d: {for (final s in MealSlot.values) s: MealEntry(slot: s)}
-      };
-
+      final byDay = <String, Map<MealSlot, MealEntry>>{};
+      final dayDates = <String, DateTime>{};
       for (final e in entries) {
-        final slot = MealSlot.values.byName(e['slot']);
         final dayLabel = e['dayLabel'] as String?;
-        if (dayLabel == null || !byDay.containsKey(dayLabel)) continue;
-        byDay[dayLabel]![slot] = MealEntry(
+        if (dayLabel == null) continue;
+        final slot = MealSlot.values.byName(e['slot']);
+        final slots = byDay.putIfAbsent(dayLabel,
+            () => {for (final s in MealSlot.values) s: MealEntry(slot: s)});
+        final parsed = DateTime.tryParse((e['date'] ?? '').toString());
+        if (parsed != null) {
+          dayDates[dayLabel] = DateTime(parsed.year, parsed.month, parsed.day);
+        }
+        slots[slot] = MealEntry(
           slot: slot,
           dishName: e['dishName'],
           restaurantName: e['restaurantName'],
@@ -861,12 +891,23 @@ class AppState extends ChangeNotifier {
         );
       }
 
-      mealPlan = days
-          .map((d) => DayPlan(
-                dayLabel: d,
-                meals: MealSlot.values.map((s) => byDay[d]![s]!).toList(),
-              ))
-          .toList();
+      if (byDay.isEmpty) {
+        mealPlan = _emptyWeekFromToday();
+      } else {
+        final labels = byDay.keys.toList();
+        final allDated = labels.every(dayDates.containsKey);
+        labels.sort((a, b) => allDated
+            ? dayDates[a]!.compareTo(dayDates[b]!)
+            : _weekdayOrder.indexOf(a).compareTo(_weekdayOrder.indexOf(b)));
+        mealPlan = [
+          for (final l in labels)
+            DayPlan(
+              dayLabel: l,
+              date: dayDates[l],
+              meals: [for (final s in MealSlot.values) byDay[l]![s]!],
+            )
+        ];
+      }
       notifyListeners();
       await _loadEatenTicks();
     } catch (_) {
@@ -874,19 +915,13 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Local-only empty 7-day × 4-slot skeleton — no Firestore write.
+  /// Local-only empty plan for the next 7 days — no Firestore write.
   /// Used as a safety net if the meal plan tab is opened before/without
   /// being logged in, so the user still sees "Tap to log..." for every
   /// slot instead of a blank loading spinner.
   void ensureEmptyMealPlanIfNeeded() {
     if (mealPlan.isNotEmpty) return;
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    mealPlan = days
-        .map((d) => DayPlan(
-              dayLabel: d,
-              meals: MealSlot.values.map((s) => MealEntry(slot: s)).toList(),
-            ))
-        .toList();
+    mealPlan = _emptyWeekFromToday();
     notifyListeners();
   }
 
@@ -927,6 +962,7 @@ class AppState extends ChangeNotifier {
       try {
         await FirebaseService.replaceMeal(
           dayLabel: day.dayLabel,
+          date: day.dateKey.isEmpty ? null : day.dateKey,
           slot: slot,
           dishName: dishName,
           restaurantName: restaurantName,
@@ -952,6 +988,7 @@ class AppState extends ChangeNotifier {
     if (source != null && dishName != null) {
       _recordMealChoice(
         dayLabel: day.dayLabel,
+        date: day.dateKey.isEmpty ? null : day.dateKey,
         slot: slot,
         dishName: dishName,
         restaurantName: restaurantName,
@@ -964,6 +1001,12 @@ class AppState extends ChangeNotifier {
     planMessage = null;
     debugPrint('SLOT COMMIT: ${watch.elapsedMilliseconds} ms');
     notifyListeners();
+    // A meal the diner chose or logged on purpose counts as eaten right away,
+    // so there is nothing to tick. Meals the app generates stay unticked. If
+    // this save fails, the meal is still saved and can be ticked by hand.
+    if (source != null && dishName != null && isLoggedIn) {
+      setMealEaten(dayIndex, slot, true).catchError((_) => null);
+    }
     return true;
   }
 
@@ -985,6 +1028,7 @@ class AppState extends ChangeNotifier {
 
   void _recordMealChoice({
     required String dayLabel,
+    String? date,
     required MealSlot slot,
     required String dishName,
     required String? restaurantName,
@@ -1007,6 +1051,7 @@ class AppState extends ChangeNotifier {
       calories: calories ?? 0,
       slot: slot,
       dayLabel: dayLabel,
+      date: date,
       source: source,
       homeCooked: homeCooked,
     );
@@ -1154,6 +1199,7 @@ class AppState extends ChangeNotifier {
             calories: entry.calories ?? 0,
             slot: slot,
             dayLabel: day.dayLabel,
+            date: day.dateKey.isEmpty ? null : day.dateKey,
             source: 'eaten',
             homeCooked: homeCooked,
           );

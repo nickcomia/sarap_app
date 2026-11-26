@@ -204,37 +204,31 @@ class _Sidebar extends StatelessWidget {
       child: SafeArea(
         child: Column(
           children: [
-            // Brand
+            // Brand: the SARAP logo (it already contains the name),
+            // with "Admin console" under it.
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 22, 18, 10),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      gradient: AppGradients.primary,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.restaurant_menu,
-                        color: Colors.white, size: 22),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('SARAP',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 17,
-                                letterSpacing: 1.5)),
-                        Text('Admin console',
-                            style: TextStyle(color: Colors.white54, fontSize: 12)),
-                      ],
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Image.asset(
+                      'assets/icons/icon.jpg',
+                      width: 150,
+                      height: 118,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const SizedBox(
+                        width: 150,
+                        height: 118,
+                        child: Icon(Icons.restaurant_menu,
+                            color: Colors.white, size: 40),
+                      ),
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  const Text('Admin console',
+                      style: TextStyle(color: Colors.white54, fontSize: 12)),
                 ],
               ),
             ),
@@ -458,7 +452,7 @@ class _OverviewPageState extends State<_OverviewPage> {
     ];
 
     return [
-      const SizedBox(height: 30),
+      const SizedBox(height: 26),
       Row(children: [
         Expanded(
             child: Text('Analytics summary',
@@ -469,10 +463,10 @@ class _OverviewPageState extends State<_OverviewPage> {
           label: const Text('Full dashboard'),
         ),
       ]),
-      const SizedBox(height: 14),
+      const SizedBox(height: 12),
       LayoutBuilder(builder: (context, c) {
         final cols = c.maxWidth >= 860 ? 4 : 2;
-        const gap = 14.0;
+        const gap = 10.0;
         final w = (c.maxWidth - gap * (cols - 1)) / cols;
         return Wrap(spacing: gap, runSpacing: gap, children: [
           for (final k in kpis)
@@ -574,7 +568,7 @@ class _OverviewPageState extends State<_OverviewPage> {
                 ),
               ],
             ),
-            const SizedBox(height: 22),
+            const SizedBox(height: 18),
 
             // Key numbers
             if (_error != null)
@@ -592,7 +586,7 @@ class _OverviewPageState extends State<_OverviewPage> {
             else
               LayoutBuilder(builder: (context, c) {
                 final cols = c.maxWidth >= 860 ? 4 : (c.maxWidth >= 520 ? 2 : 1);
-                const gap = 14.0;
+                const gap = 10.0;
                 final w = (c.maxWidth - gap * (cols - 1)) / cols;
                 Widget card(IconData i, String label, String value, {String? note}) =>
                     SizedBox(
@@ -608,7 +602,8 @@ class _OverviewPageState extends State<_OverviewPage> {
                     card(Icons.storefront_outlined, 'Restaurants',
                         '${s['restaurants']}',
                         note: '${s['hiddenRestaurants']} hidden'),
-                    card(Icons.restaurant_menu, 'Menu items', '${s['menuItems']}'),
+                    card(Icons.restaurant_menu, 'Menu items', '${s['menuItems']}',
+                        note: 'Across all restaurants'),
                     card(Icons.favorite_border, 'Saved places', '${s['totalSaves']}',
                         note:
                             'Avg rating ${(s['avgRating'] as num).toDouble().toStringAsFixed(1)}'),
@@ -662,6 +657,8 @@ class _OverviewPageState extends State<_OverviewPage> {
   }
 }
 
+/// A compact number card. Smaller than before: less padding, a smaller icon
+/// box and a smaller value, so more fits on screen.
 class _KpiCard extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -673,10 +670,10 @@ class _KpiCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: AppColors.card,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.border),
         boxShadow: AppShadows.soft,
       ),
@@ -686,35 +683,37 @@ class _KpiCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 40,
-                height: 40,
+                width: 30,
+                height: 30,
                 decoration: BoxDecoration(
                   color: AppColors.chipSelectedBg,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(9),
                 ),
-                child: Icon(icon, color: AppColors.primaryDark, size: 21),
+                child: Icon(icon, color: AppColors.primaryDark, size: 17),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                         color: AppColors.muted,
-                        fontSize: 13,
+                        fontSize: 12,
                         fontWeight: FontWeight.w600)),
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
           Text(value,
               style: const TextStyle(
-                  fontSize: 30,
+                  fontSize: 22,
                   fontWeight: FontWeight.w800,
                   color: AppColors.navy,
                   height: 1)),
           if (note != null) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 5),
             Text(note!,
-                style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+                style: const TextStyle(color: AppColors.muted, fontSize: 11)),
           ],
         ],
       ),

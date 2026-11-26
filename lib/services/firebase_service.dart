@@ -988,6 +988,7 @@ class FirebaseService {
     // ---- What diners chose (best effort; counts only, never one diner) ----
     var mealLogOk = true;
     var mealLogCount = 0, mealLogHome = 0;
+    var mealLogEaten = 0;
     final mealLogUsers = <String>{};
     final dishLabels = <String, String>{};
     final dishCounts = <String, int>{};
@@ -999,6 +1000,10 @@ class FirebaseService {
       final ml = await _db.collectionGroup('mealLog').get();
       for (final d in ml.docs) {
         final m = d.data();
+        if (m['source'] == 'eaten') {
+          mealLogEaten++; // a tick copies a meal already counted as chosen
+          continue;
+        }
         mealLogCount++;
         final owner = d.reference.parent.parent;
         if (owner != null) mealLogUsers.add(owner.id);
@@ -1112,6 +1117,7 @@ class FirebaseService {
       // what diners chose
       'mealLogOk': mealLogOk,
       'mealLogCount': mealLogCount,
+      'mealLogEaten': mealLogEaten,
       'mealLogUsers': mealLogUsers.length,
       'mealLogHomeCooked': mealLogHome,
       'topChosenDishes': _ranked(chosenDishes, take: 10),
@@ -1186,7 +1192,7 @@ class FirebaseService {
     final userRef = _db.collection('users').doc(uid);
 
     // Subcollections first: deleting a document does not delete them.
-    for (final sub in const ['saved', 'mealPlan', 'mealLog']) {
+    for (final sub in const ['saved', 'mealPlan', 'mealLog', 'mealEaten', 'planHistory']) {
       final snap = await userRef.collection(sub).get();
       for (var i = 0; i < snap.docs.length; i += 400) {
         final subBatch = _db.batch();
@@ -1313,6 +1319,39 @@ class FirebaseService {
 
     final batch = _db.batch();
     final existing = await col.get(const GetOptions(source: Source.server));
+
+    // Keep a record of the meals the diner actually ate in the plan that is
+    // about to be replaced (the ones ticked as eaten). Meals that were only
+    // planned are not kept. It is written in the same batch, so either both
+    // happen or neither.
+    final tickSnap = await _db
+        .collection('users')
+        .doc(uid)
+        .collection('mealEaten')
+        .get(const GetOptions(source: Source.server));
+    final ticked = {
+      for (final t in tickSnap.docs) t.id: (t.data()['dishName'] ?? '').toString()
+    };
+    final eatenMeals = [
+      for (final d in existing.docs)
+        if (d.data()['dishName'] != null &&
+            ticked[d.id] == d.data()['dishName'].toString())
+          d.data()
+    ];
+    if (eatenMeals.isNotEmpty) {
+      batch.set(
+        _db.collection('users').doc(uid).collection('planHistory').doc(),
+        {
+          'meals': eatenMeals,
+          'mealCount': eatenMeals.length,
+          'totalCalories': eatenMeals.fold<int>(
+              0, (sum, m) => sum + _asInt(m['calories'])),
+          'eatenOnly': true,
+          'archivedAt': FieldValue.serverTimestamp(),
+        },
+      );
+    }
+
     for (final d in existing.docs) {
       batch.delete(d.reference);
     }
@@ -1321,6 +1360,7 @@ class FirebaseService {
         final id = '${day.dayLabel}_${meal.slot.name}';
         batch.set(col.doc(id), {
           'dayLabel': day.dayLabel,
+          'date': day.dateKey.isEmpty ? null : day.dateKey,
           'slot': meal.slot.name,
           'dishName': meal.dishName,
           'restaurantName': meal.restaurantName,
@@ -1329,6 +1369,30 @@ class FirebaseService {
       }
     }
     await batch.commit();
+  }
+
+  /// The signed-in diner's earlier meal plans, newest first. Each item has
+  /// 'archivedAt' (DateTime?), 'mealCount', 'totalCalories' and 'meals'.
+  static Future<List<Map<String, dynamic>>> fetchPlanHistory(
+      {int limit = 12}) async {
+    final uid = currentUid;
+    if (uid == null) return [];
+    final snap = await _db
+        .collection('users')
+        .doc(uid)
+        .collection('planHistory')
+        .orderBy('archivedAt', descending: true)
+        .limit(limit)
+        .get();
+    return snap.docs.map((d) {
+      final m = d.data();
+      final ts = m['archivedAt'];
+      return <String, dynamic>{
+        'id': d.id,
+        ...m,
+        'archivedAt': ts is Timestamp ? ts.toDate() : null,
+      };
+    }).toList();
   }
 
   static Future<List<Map<String, dynamic>>> fetchMealPlanEntries() async {
@@ -1364,12 +1428,36 @@ class FirebaseService {
     return snap.docs.map((d) => MealChoice.fromMap(d.data())).toList();
   }
 
+  /// The signed-in diner's own meal records as plain maps (newest first),
+  /// with 'createdAt' converted to DateTime. Used by the Meal history screen.
+  static Future<List<Map<String, dynamic>>> fetchMealHistoryRaw(
+      {int limit = 200}) async {
+    final uid = currentUid;
+    if (uid == null) return [];
+    final snap = await _db
+        .collection('users')
+        .doc(uid)
+        .collection('mealLog')
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .get();
+    return snap.docs.map((d) {
+      final m = d.data();
+      final ts = m['createdAt'];
+      return <String, dynamic>{
+        ...m,
+        'createdAt': ts is Timestamp ? ts.toDate() : null,
+      };
+    }).toList();
+  }
+
   /// Writes one slot. Done as a transaction so it only succeeds when the
   /// server actually accepted it: offline or on timeout it throws, and the
   /// app then leaves the on-screen meal unchanged. The doc id is fixed
   /// (day_slot), so a retry overwrites the same slot — never adds a second.
   static Future<void> replaceMeal({
     required String dayLabel,
+    String? date,
     required MealSlot slot,
     String? dishName,
     String? restaurantName,
@@ -1382,6 +1470,7 @@ class FirebaseService {
     await _db.runTransaction((tx) async {
       tx.set(ref, {
         'dayLabel': dayLabel,
+        'date': date,
         'slot': slot.name,
         'dishName': dishName,
         'restaurantName': restaurantName,

@@ -20,7 +20,13 @@ class MealPlanScreen extends StatefulWidget {
 
 class _MealPlanScreenState extends State<MealPlanScreen> {
   int _dayIndex = 0;
+  bool _pickedToday = false;
   bool _regenerating = false;
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
 
   static const _fullDayNames = {
     'Mon': 'Monday',
@@ -127,6 +133,13 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     if (plan.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
+    // First time the plan is shown: open on today.
+    if (!_pickedToday) {
+      _pickedToday = true;
+      final t = plan.indexWhere((d) => d.isToday);
+      if (t >= 0) _dayIndex = t;
+    }
+    if (_dayIndex >= plan.length) _dayIndex = 0;
     final day = plan[_dayIndex];
     final complete = state.hasRequiredHealthData;
     final target = state.dailyTarget;
@@ -245,7 +258,11 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
-                            plan[i].dayLabel,
+                            plan[i].isToday
+                                ? 'Today'
+                                : (plan[i].date == null
+                                    ? plan[i].dayLabel
+                                    : '${plan[i].dayLabel} ${plan[i].date!.day}'),
                             style: TextStyle(
                               color: selected ? Colors.white : colors.navy,
                               fontWeight: FontWeight.w700,
@@ -259,7 +276,8 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                 ),
                 const SizedBox(height: 14),
                 Text(
-                  _fullDayNames[day.dayLabel] ?? day.dayLabel,
+                  '${_fullDayNames[day.dayLabel] ?? day.dayLabel}'
+                  '${day.date == null ? '' : ', ${_months[day.date!.month - 1]} ${day.date!.day}'}',
                   style: TextStyle(
                       fontWeight: FontWeight.w800, fontSize: 16, color: colors.navy),
                 ),

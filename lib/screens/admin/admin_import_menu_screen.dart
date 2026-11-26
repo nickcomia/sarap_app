@@ -9,7 +9,7 @@ import '../../theme.dart';
 /// File > Save As > "CSV UTF-8").
 ///
 /// Columns (first row is the header, order does not matter):
-///   name | price | calories | mealTypes | dietaryTags | imageUrl
+///   name | price | calories | servingSize | mealTypes | dietaryTags | imageUrl
 /// mealTypes and dietaryTags can hold several values separated by commas.
 ///
 /// dietaryTags only accepts the names on the dietary list below. Anything
@@ -43,6 +43,7 @@ class _ImportRow {
   final List<String> mealTypes;
   final List<String> dietaryTags;
   final String? imageUrl;
+  final String? servingSize;
   final List<String> errors;
   final List<String> warnings;
   String? skipReason; // set when the dish already exists
@@ -55,6 +56,7 @@ class _ImportRow {
     required this.mealTypes,
     required this.dietaryTags,
     required this.imageUrl,
+    required this.servingSize,
     required this.errors,
     required this.warnings,
   });
@@ -254,6 +256,7 @@ class _AdminImportMenuScreenState extends State<AdminImportMenuScreen> {
     final cMeal = col(['mealtypes', 'mealtype', 'meal']);
     final cDiet = col(['dietarytags', 'dietarytag', 'dietary', 'diet']);
     final cImage = col(['imageurl', 'image', 'photo', 'photourl']);
+    final cServing = col(['servingsize', 'serving', 'portion', 'portionsize']);
 
     final missing = <String>[
       if (cName < 0) 'name',
@@ -331,6 +334,15 @@ class _AdminImportMenuScreenState extends State<AdminImportMenuScreen> {
             '$shown${ignored.length > 3 ? ', …' : ''}');
       }
 
+      var serving = cellAt(r, cServing).replaceAll(RegExp(r'\s+'), ' ');
+      if (serving.length > 40) {
+        serving = serving.substring(0, 40);
+        warnings.add('Serving size was longer than 40 characters and was shortened');
+      }
+      if (serving.isEmpty) {
+        warnings.add('No serving size, so the calories will show as "serving not specified"');
+      }
+
       final image = cellAt(r, cImage);
 
       rows.add(_ImportRow(
@@ -341,6 +353,7 @@ class _AdminImportMenuScreenState extends State<AdminImportMenuScreen> {
         mealTypes: meals,
         dietaryTags: diet,
         imageUrl: image.isEmpty ? null : image,
+        servingSize: serving.isEmpty ? null : serving,
         errors: errors,
         warnings: warnings,
       ));
@@ -386,6 +399,7 @@ class _AdminImportMenuScreenState extends State<AdminImportMenuScreen> {
           calories: r.calories,
           mealTypes: r.mealTypes,
           dietaryTags: r.dietaryTags,
+          servingSize: r.servingSize,
           imageUrl: r.imageUrl,
         );
         saved++;
@@ -450,7 +464,8 @@ class _AdminImportMenuScreenState extends State<AdminImportMenuScreen> {
                 ),
                 child: Text(
                   'Use a .csv file (in Excel: File > Save As > CSV UTF-8). The first row must be the header:\n\n'
-                  'name | price | calories | mealTypes | dietaryTags | imageUrl\n\n'
+                  'name | price | calories | servingSize | mealTypes | dietaryTags | imageUrl\n\n'
+                  '• servingSize: what the calories are for, for example 1 slice, 16 oz cup or 1 plate (about 250 g)\n'
                   '• mealTypes: ${_mealTypeNames.join(', ')}\n'
                   '• dietaryTags: only these names are accepted: ${_dietaryNames.join(', ')}. '
                   'Any other text in that column is ignored.\n'
@@ -559,6 +574,7 @@ class _AdminImportMenuScreenState extends State<AdminImportMenuScreen> {
     final details = <String>[
       if (!r.hasErrors) '₱${r.price.toStringAsFixed(r.price % 1 == 0 ? 0 : 2)}',
       if (!r.hasErrors) '${r.calories} kcal',
+      if (!r.hasErrors && r.servingSize != null) 'per ${r.servingSize}',
       if (r.mealTypes.isNotEmpty) r.mealTypes.join(', '),
       if (r.dietaryTags.isNotEmpty) r.dietaryTags.join(', '),
     ];
