@@ -204,31 +204,34 @@ class _Sidebar extends StatelessWidget {
       child: SafeArea(
         child: Column(
           children: [
-            // Brand: the SARAP logo (it already contains the name),
-            // with "Admin console" under it.
+            // Brand: a compact SARAP logo with "Admin console" beside it.
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 22, 18, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.fromLTRB(18, 20, 18, 6),
+              child: Row(
                 children: [
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(10),
                     child: Image.asset(
                       'assets/icons/icon.jpg',
-                      width: 150,
-                      height: 118,
+                      width: 72,
+                      height: 56,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => const SizedBox(
-                        width: 150,
-                        height: 118,
+                        width: 72,
+                        height: 56,
                         child: Icon(Icons.restaurant_menu,
-                            color: Colors.white, size: 40),
+                            color: Colors.white, size: 28),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  const Text('Admin console',
-                      style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text('Admin console',
+                        style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600)),
+                  ),
                 ],
               ),
             ),
@@ -478,14 +481,16 @@ class _OverviewPageState extends State<_OverviewPage> {
       const SizedBox(height: 14),
       LayoutBuilder(builder: (context, c) {
         final twoCols = c.maxWidth >= 780;
-        const gap = 14.0;
+        const gap = 12.0;
         final half = (c.maxWidth - gap) / 2;
+        // Two per row, in a 2 x 2 grid. Cards of similar height share a row
+        // (trend + ratings, then the two donuts), so there are no big gaps.
+        final ordered = [charts[0], charts[2], charts[1], charts[3]];
         return Wrap(spacing: gap, runSpacing: gap, children: [
-          for (var i = 0; i < charts.length; i++)
+          for (final chart in ordered)
             SizedBox(
-              // The trend line gets the full width; the rest sit two per row.
-              width: (twoCols && i != 0) ? half : c.maxWidth,
-              child: charts[i],
+              width: twoCols ? half : c.maxWidth,
+              child: chart,
             ),
         ]);
       }),
