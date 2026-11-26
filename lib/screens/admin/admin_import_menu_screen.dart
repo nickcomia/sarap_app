@@ -465,7 +465,7 @@ class _AdminImportMenuScreenState extends State<AdminImportMenuScreen> {
                 child: Text(
                   'Use a .csv file (in Excel: File > Save As > CSV UTF-8). The first row must be the header:\n\n'
                   'name | price | calories | servingSize | mealTypes | dietaryTags | imageUrl\n\n'
-                  '• servingSize: what the calories are for, for example 1 slice, 16 oz cup or 1 plate (about 250 g)\n'
+                  '• servingSize: for example 1 slice, 16 oz cup or 1 plate (about 250 g)\n'
                   '• mealTypes: ${_mealTypeNames.join(', ')}\n'
                   '• dietaryTags: only these names are accepted: ${_dietaryNames.join(', ')}. '
                   'Any other text in that column is ignored.\n'

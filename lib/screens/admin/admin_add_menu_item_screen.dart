@@ -315,7 +315,7 @@ class _AdminAddMenuItemScreenState extends State<AdminAddMenuItemScreen> {
                   controller: _servingCtrl,
                   maxLength: 40,
                   decoration: const InputDecoration(
-                    labelText: 'Serving size (what the calories are for)',
+                    labelText: 'Serving size',
                     hintText: 'e.g. 1 slice, 16 oz cup, 1 plate (about 250 g)',
                   ),
                   validator: (v) =>

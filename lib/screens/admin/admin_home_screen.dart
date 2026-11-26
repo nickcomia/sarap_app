@@ -204,7 +204,7 @@ class _Sidebar extends StatelessWidget {
       child: SafeArea(
         child: Column(
           children: [
-            // Brand: a compact SARAP logo with "Admin console" beside it.
+            // Brand: a compact SARAP logo with "SARAP Admin Console" beside it.
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 20, 18, 6),
               child: Row(
@@ -609,9 +609,10 @@ class _OverviewPageState extends State<_OverviewPage> {
                         note: '${s['hiddenRestaurants']} hidden'),
                     card(Icons.restaurant_menu, 'Menu items', '${s['menuItems']}',
                         note: 'Across all restaurants'),
+                    // Empty note: no text, but the card keeps the same height
+                    // as the other cards in this row.
                     card(Icons.favorite_border, 'Saved places', '${s['totalSaves']}',
-                        note:
-                            'Avg rating ${(s['avgRating'] as num).toDouble().toStringAsFixed(1)}'),
+                        note: ''),
                   ],
                 );
               }),
@@ -717,8 +718,10 @@ class _KpiCard extends StatelessWidget {
                   height: 1)),
           if (note != null) ...[
             const SizedBox(height: 5),
-            Text(note!,
-                style: const TextStyle(color: AppColors.muted, fontSize: 11)),
+            note!.isEmpty
+                ? const SizedBox(height: 14)
+                : Text(note!,
+                    style: const TextStyle(color: AppColors.muted, fontSize: 11)),
           ],
         ],
       ),
