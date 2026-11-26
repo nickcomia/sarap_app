@@ -213,11 +213,11 @@ class _Sidebar extends StatelessWidget {
                     borderRadius: BorderRadius.circular(10),
                     child: Image.asset(
                       'assets/icons/icon_logo.jpg',
-                      width: 72,
+                      width: 48,
                       height: 56,
-                      fit: BoxFit.cover,
+                      fit: BoxFit.contain,
                       errorBuilder: (_, __, ___) => const SizedBox(
-                        width: 72,
+                        width: 48,
                         height: 56,
                         child: Icon(Icons.restaurant_menu,
                             color: Colors.white, size: 28),
@@ -226,7 +226,7 @@ class _Sidebar extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
-                    child: Text('SARAPAdmin Console',
+                    child: Text('SARAP Admin Console',
                         style: TextStyle(
                             color: Colors.white70,
                             fontSize: 13,
