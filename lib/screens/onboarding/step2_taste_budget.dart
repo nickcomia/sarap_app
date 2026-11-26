@@ -25,7 +25,58 @@ class _Step2TasteBudgetState extends State<Step2TasteBudget> {
     'Dairy-free',
   ];
 
-  /// Extra tags the admin added to dishes (for example "Low sugar").
+  /// Other restriction names a diner may pick. A dish tag is only offered
+  /// here when it is one of these. Tags such as "Contains pork" or
+  /// "Non-Vegetarian" describe a dish, not something a diner needs, so they
+  /// are not listed. The names match the suggestions in the admin tag dialog.
+  static const _restrictionNames = [
+    'Vegan',
+    'Pescatarian',
+    'Low sugar',
+    'Sugar-free',
+    'Low sodium',
+    'Low fat',
+    'Low carb',
+    'High protein',
+    'Keto',
+    'Nut-free',
+    'Egg-free',
+    'Soy-free',
+    'Shellfish-free',
+    'Lactose-free',
+    'Diabetic-friendly',
+  ];
+
+  /// Same names with capitals, spaces and dashes ignored, so "High-Protein"
+  /// and "High protein" both count as a match.
+  static final Set<String> _allowedKeys =
+      _restrictionNames.map(_plain).toSet();
+
+  static String _plain(String s) =>
+      s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+  /// Whether a dish tag should be offered to diners as a restriction.
+  /// The known names always pass. A tag the admin typed themselves also
+  /// passes when it reads like something a diner needs: short, only letters,
+  /// spaces and dashes, and not a description of the dish ("Contains pork",
+  /// "Non-Vegetarian", "not suitable for vegetarian"). That way a new tag
+  /// such as "Low purine" appears on its own, while stray text does not.
+  static bool _isOfferable(String tag) {
+    final t = tag.trim();
+    if (_allowedKeys.contains(_plain(t))) return true;
+    if (t.length < 3 || t.length > 24) return false;
+    if (!RegExp(r'^[A-Za-z][A-Za-z \-]*$').hasMatch(t)) return false;
+    final k = t.toLowerCase();
+    const dishStarts = [
+      'contains', 'non-', 'non ', 'not ', 'may ', 'with ', 'or ', 'and ',
+      'high in', 'suitable',
+    ];
+    if (dishStarts.any(k.startsWith)) return false;
+    if (t.split(RegExp(r'[ \-]+')).length > 3) return false;
+    return true;
+  }
+
+  /// Tags the admin added to dishes (filtered by _isOfferable).
   List<String> _menuTags = [];
 
   @override
@@ -42,9 +93,9 @@ class _Step2TasteBudgetState extends State<Step2TasteBudget> {
 
   static String _k(String s) => s.trim().toLowerCase();
 
-  /// Fixed list first, then tags found on dishes, then anything the diner
-  /// already picked that is in neither (so it can still be switched off).
-  /// Names that differ only by capital letters are shown once.
+  /// Fixed list first, then recognised tags found on dishes, then anything
+  /// the diner already picked that is in neither (so it can still be
+  /// switched off). Names that differ only by capital letters are shown once.
   List<String> get _options {
     final seen = <String>{};
     final out = <String>[];
@@ -55,7 +106,9 @@ class _Step2TasteBudgetState extends State<Step2TasteBudget> {
     }
 
     dietaryRestrictions.forEach(add);
-    _menuTags.forEach(add);
+    for (final t in _menuTags) {
+      if (_isOfferable(t)) add(t);
+    }
     profile.dietaryRestrictions.forEach(add);
     return out;
   }

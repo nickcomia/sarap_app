@@ -12,6 +12,11 @@ import '../../theme.dart';
 ///   name | price | calories | mealTypes | dietaryTags | imageUrl
 /// mealTypes and dietaryTags can hold several values separated by commas.
 ///
+/// dietaryTags only accepts the names on the dietary list below. Anything
+/// else (for example a sentence like "Non-Halal (contains pork), not
+/// suitable for vegetarian") is NOT imported as a tag; the preview shows
+/// which text was ignored.
+///
 /// Nothing is saved until the admin has seen the preview and taps Import.
 /// Rows with problems are listed with the reason and are NOT imported.
 /// Dishes whose name already exists on this restaurant are skipped, so
@@ -69,12 +74,31 @@ class _AdminImportMenuScreenState extends State<AdminImportMenuScreen> {
     'Dessert',
     'Late night',
   ];
+
+  // The dietary tags a dish can carry. These match the tag buttons and the
+  // suggestions in the admin form, and the restrictions diners can pick, so
+  // an imported tag always lines up with what diners choose.
   static const _dietaryNames = [
     'Vegetarian',
     'No pork',
     'Halal',
     'Gluten-free',
     'Dairy-free',
+    'Vegan',
+    'Pescatarian',
+    'Low sugar',
+    'Sugar-free',
+    'Low sodium',
+    'Low fat',
+    'Low carb',
+    'High protein',
+    'Keto',
+    'Nut-free',
+    'Egg-free',
+    'Soy-free',
+    'Shellfish-free',
+    'Lactose-free',
+    'Diabetic-friendly',
   ];
 
   String? _fileName;
@@ -281,13 +305,30 @@ class _AdminImportMenuScreenState extends State<AdminImportMenuScreen> {
         warnings.add('No meal type, so it will not be used in meal plans');
       }
 
+      // Only names on the dietary list become tags. Free text (a sentence
+      // split at its commas, a note, a description) is ignored and reported,
+      // so it can never end up as a tag diners see.
       final diet = <String>[];
+      final ignored = <String>[];
       for (final raw in _splitList(cellAt(r, cDiet))) {
         final match = _dietaryNames
             .where((d) => _letters(d) == _letters(raw))
             .toList();
-        final tag = match.isEmpty ? raw : match.first; // keep custom tags as typed
-        if (!diet.contains(tag)) diet.add(tag);
+        if (match.isEmpty) {
+          ignored.add(raw);
+        } else if (!diet.contains(match.first)) {
+          diet.add(match.first);
+        }
+      }
+      if (ignored.isNotEmpty) {
+        final shown = ignored.take(3).map((t) {
+          final short = t.length > 30 ? '${t.substring(0, 30)}…' : t;
+          return '"$short"';
+        }).join(', ');
+        warnings.add(
+            'Ignored ${ignored.length} text${ignored.length == 1 ? '' : 's'} that '
+            '${ignored.length == 1 ? 'is' : 'are'} not on the dietary list: '
+            '$shown${ignored.length > 3 ? ', …' : ''}');
       }
 
       final image = cellAt(r, cImage);
@@ -407,15 +448,18 @@ class _AdminImportMenuScreenState extends State<AdminImportMenuScreen> {
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: AppColors.border),
                 ),
-                child: const Text(
+                child: Text(
                   'Use a .csv file (in Excel: File > Save As > CSV UTF-8). The first row must be the header:\n\n'
                   'name | price | calories | mealTypes | dietaryTags | imageUrl\n\n'
-                  '• mealTypes: Breakfast, Lunch, Dinner, Merienda, Dessert, Late night\n'
-                  '• dietaryTags: Vegetarian, No pork, Halal, Gluten-free, Dairy-free\n'
+                  '• mealTypes: ${_mealTypeNames.join(', ')}\n'
+                  '• dietaryTags: only these names are accepted: ${_dietaryNames.join(', ')}. '
+                  'Any other text in that column is ignored.\n'
                   '• Put several values in one cell separated by commas\n'
+                  '• Do not write descriptions or sentences in dietaryTags; a dish that contains pork should simply not be tagged "No pork"\n'
                   '• imageUrl can be left empty\n'
                   '• Dishes that already exist on this menu are skipped',
-                  style: TextStyle(fontSize: 12.5, height: 1.45, color: AppColors.muted),
+                  style: const TextStyle(
+                      fontSize: 12.5, height: 1.45, color: AppColors.muted),
                 ),
               ),
               const SizedBox(height: 14),
