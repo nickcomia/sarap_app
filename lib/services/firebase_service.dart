@@ -416,6 +416,9 @@ class FirebaseService {
       latitude: (r['latitude'] as num?)?.toDouble() ?? 14.0863,
       longitude: (r['longitude'] as num?)?.toDouble() ?? 121.1497,
       imageUrl: r['imageUrl'],
+      opensAt: _cleanTime(r['opensAt']),
+      closesAt: _cleanTime(r['closesAt']),
+      closedDays: _asDayList(r['closedDays']),
     );
   }
 
@@ -483,6 +486,9 @@ class FirebaseService {
     required double latitude,
     required double longitude,
     String? imageUrl,
+    String? opensAt, // "HH:mm", for example "08:00"
+    String? closesAt,
+    List<int>? closedDays, // 1 = Monday ... 7 = Sunday
   }) async {
     final doc = _db.collection('restaurants').doc();
     await doc.set({
@@ -500,8 +506,98 @@ class FirebaseService {
       'latitude': latitude,
       'longitude': longitude,
       'imageUrl': imageUrl,
+      ..._hoursFields(opensAt, closesAt, closedDays, creating: true),
     });
     return doc.id;
+  }
+
+  // ---- Opening hours ----
+
+  /// "H:mm" or "HH:mm" text -> "HH:mm", or null if it is not a valid time.
+  static String? _cleanTime(dynamic value) {
+    if (value == null) return null;
+    final m = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(value.toString().trim());
+    if (m == null) return null;
+    final h = int.parse(m.group(1)!);
+    final min = int.parse(m.group(2)!);
+    if (h > 23 || min > 59) return null;
+    return '${h.toString().padLeft(2, '0')}:${min.toString().padLeft(2, '0')}';
+  }
+
+  /// Closed days stored as weekday numbers 1..7. Anything else is ignored.
+  static List<int> _asDayList(dynamic value) {
+    if (value is! List) return [];
+    return [
+      for (final v in value)
+        if (v is num && v >= 1 && v <= 7) v.toInt()
+    ];
+  }
+
+  /// The hours fields to store. A value that is not passed (null) is left
+  /// out, so an older form that does not know about hours never wipes them.
+  /// An empty text clears the stored time (when updating).
+  static Map<String, dynamic> _hoursFields(
+      String? opensAt, String? closesAt, List<int>? closedDays,
+      {bool creating = false}) {
+    final out = <String, dynamic>{};
+    void time(String key, String? v) {
+      if (v == null) return;
+      if (v.trim().isEmpty) {
+        if (!creating) out[key] = FieldValue.delete();
+        return;
+      }
+      final t = _cleanTime(v);
+      if (t == null) throw ApiException('Enter the time like 08:00');
+      out[key] = t;
+    }
+
+    time('opensAt', opensAt);
+    time('closesAt', closesAt);
+    if (closedDays != null) {
+      out['closedDays'] = [
+        for (final d in closedDays)
+          if (d >= 1 && d <= 7) d
+      ];
+    }
+    return out;
+  }
+
+  /// Typical hours for a kind of place. These are placeholders, to be
+  /// corrected by the administrator with each restaurant's real hours.
+  static (String, String) _defaultHoursFor(String type) {
+    final t = type.split(',').first.trim().toLowerCase();
+    if (t.contains('bar')) return ('17:00', '01:00');
+    if (t.contains('caf') || t.contains('coffee')) return ('08:00', '20:00');
+    if (t.contains('bake')) return ('06:00', '19:00');
+    if (t.contains('fast')) return ('08:00', '22:00');
+    if (t.contains('karinder')) return ('06:00', '19:00');
+    if (t.contains('eatery')) return ('07:00', '20:00');
+    if (t.contains('restaurant')) return ('10:00', '21:00');
+    return ('09:00', '21:00');
+  }
+
+  /// Gives every restaurant that has no opening hours typical hours for its
+  /// type. Restaurants that already have hours are not touched. Returns how
+  /// many restaurants were updated.
+  static Future<int> fillMissingHours() async {
+    final snap = await _db.collection('restaurants').get();
+    final batch = _db.batch();
+    var n = 0;
+    for (final d in snap.docs) {
+      final m = d.data();
+      if (_cleanTime(m['opensAt']) != null && _cleanTime(m['closesAt']) != null) {
+        continue;
+      }
+      final h = _defaultHoursFor((m['type'] ?? '').toString());
+      batch.update(d.reference, {
+        'opensAt': h.$1,
+        'closesAt': h.$2,
+        'closedDays': <int>[],
+      });
+      n++;
+    }
+    if (n > 0) await batch.commit();
+    return n;
   }
 
   /// Turns the admin's price inputs into the fields stored on a restaurant.
@@ -674,6 +770,9 @@ class FirebaseService {
     required double latitude,
     required double longitude,
     String? imageUrl,
+    String? opensAt, // null = leave the stored hours unchanged
+    String? closesAt,
+    List<int>? closedDays,
   }) async {
     await _db.collection('restaurants').doc(id).update({
       'name': name,
@@ -687,6 +786,7 @@ class FirebaseService {
       'latitude': latitude,
       'longitude': longitude,
       'imageUrl': imageUrl,
+      ..._hoursFields(opensAt, closesAt, closedDays),
     });
   }
 
@@ -1374,7 +1474,7 @@ class FirebaseService {
   /// The signed-in diner's earlier meal plans, newest first. Each item has
   /// 'archivedAt' (DateTime?), 'mealCount', 'totalCalories' and 'meals'.
   static Future<List<Map<String, dynamic>>> fetchPlanHistory(
-      {int limit = 12}) async {
+      {int limit = 40}) async {
     final uid = currentUid;
     if (uid == null) return [];
     final snap = await _db
@@ -1431,7 +1531,7 @@ class FirebaseService {
   /// The signed-in diner's own meal records as plain maps (newest first),
   /// with 'createdAt' converted to DateTime. Used by the Meal history screen.
   static Future<List<Map<String, dynamic>>> fetchMealHistoryRaw(
-      {int limit = 200}) async {
+      {int limit = 1000}) async {
     final uid = currentUid;
     if (uid == null) return [];
     final snap = await _db

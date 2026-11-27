@@ -36,19 +36,24 @@ class _MealHistoryScreenState extends State<MealHistoryScreen> {
       _error = null;
     });
     try {
-      final meals = await FirebaseService.fetchMealHistoryRaw();
-      List<Map<String, dynamic>> plans = [];
-      try {
-        plans = await FirebaseService.fetchPlanHistory();
-      } catch (_) {
-        // Past plans are optional; the meals can still be shown.
-      }
+      // Show the newest meals right away, load past plans alongside, then
+      // fetch the full history in the background so the screen opens fast.
+      final plansFuture = FirebaseService.fetchPlanHistory()
+          .catchError((_) => <Map<String, dynamic>>[]);
+      final recent = await FirebaseService.fetchMealHistoryRaw(limit: 120);
       if (!mounted) return;
       setState(() {
-        _meals = _oneRecordPerMeal(meals);
-        _plans = plans;
+        _meals = _oneRecordPerMeal(recent);
         _loading = false;
       });
+      final plans = await plansFuture;
+      if (!mounted) return;
+      setState(() => _plans = plans);
+      if (recent.length >= 120) {
+        final all = await FirebaseService.fetchMealHistoryRaw(limit: 1000);
+        if (!mounted) return;
+        setState(() => _meals = _oneRecordPerMeal(all));
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {

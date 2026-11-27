@@ -278,6 +278,8 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                           style: TextStyle(fontWeight: FontWeight.w800, color: colors.navy)),
                     ],
                   ),
+                  const SizedBox(height: 12),
+                  _hoursRow(context, r),
                   const SizedBox(height: 18),
                   Text('About', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
@@ -351,6 +353,40 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// "Open now" / "Closed now" badge and the opening hours.
+  Widget _hoursRow(BuildContext context, Restaurant r) {
+    final colors = context.colors;
+    final open = r.isOpenNow;
+    final badgeColor = open == null
+        ? colors.muted
+        : (open ? Colors.green.shade600 : Colors.red.shade600);
+    return Row(
+      children: [
+        Icon(Icons.access_time, size: 16, color: colors.muted),
+        const SizedBox(width: 6),
+        if (open != null) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: badgeColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(open ? 'Open now' : 'Closed now',
+                style: TextStyle(
+                    color: badgeColor,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12)),
+          ),
+          const SizedBox(width: 10),
+        ],
+        Expanded(
+          child: Text(r.hoursLabel,
+              style: TextStyle(color: colors.muted, fontSize: 13)),
+        ),
+      ],
     );
   }
 

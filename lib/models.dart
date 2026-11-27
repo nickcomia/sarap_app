@@ -242,6 +242,17 @@ class Restaurant {
   final double latitude;
   final double longitude;
   final String? imageUrl; // real cover photo, uploaded via the admin screen
+
+  /// Opening and closing time as 24-hour "HH:mm" text (for example "08:00"),
+  /// entered by the administrator. Null means the hours are not known yet.
+  /// A closing time earlier than the opening time means it closes after
+  /// midnight (for example 17:00 to 01:00).
+  final String? opensAt;
+  final String? closesAt;
+
+  /// Days the restaurant is closed, as DateTime weekday numbers
+  /// (1 = Monday ... 7 = Sunday).
+  final List<int> closedDays;
   bool isSaved;
 
   Restaurant({
@@ -262,6 +273,9 @@ class Restaurant {
     this.latitude = 14.0863, // defaults to roughly Tanauan City center
     this.longitude = 121.1497,
     this.imageUrl,
+    this.opensAt,
+    this.closesAt,
+    this.closedDays = const [],
     this.isSaved = false,
   });
 
@@ -272,6 +286,71 @@ class Restaurant {
   /// A middle price that one expensive dish cannot pull up
   /// (the geometric mean of the lowest and highest price).
   double? get typicalPrice => hasPriceRange ? sqrt(priceMin! * priceMax!) : null;
+
+  // --- Opening hours --------------------------------------------------------
+
+  /// Minutes after midnight for an "HH:mm" text, or null if it is not valid.
+  static int? _minutesOf(String? t) {
+    if (t == null) return null;
+    final m = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(t.trim());
+    if (m == null) return null;
+    final h = int.parse(m.group(1)!);
+    final min = int.parse(m.group(2)!);
+    if (h > 23 || min > 59) return null;
+    return h * 60 + min;
+  }
+
+  /// True when both an opening and a closing time are stored.
+  bool get hasHours => _minutesOf(opensAt) != null && _minutesOf(closesAt) != null;
+
+  /// Whether the restaurant is open at [now]: true or false when the hours
+  /// are known, null when they are not.
+  bool? isOpenAt(DateTime now) {
+    final open = _minutesOf(opensAt);
+    final close = _minutesOf(closesAt);
+    if (open == null || close == null) return null;
+    final minute = now.hour * 60 + now.minute;
+    bool closedOn(int weekday) => closedDays.contains(weekday);
+
+    if (open == close) return !closedOn(now.weekday); // open all day
+    if (open < close) {
+      return !closedOn(now.weekday) && minute >= open && minute < close;
+    }
+    // Closes after midnight, for example 17:00 to 01:00.
+    if (minute >= open) return !closedOn(now.weekday);
+    if (minute < close) {
+      final yesterday = now.weekday == 1 ? 7 : now.weekday - 1;
+      return !closedOn(yesterday);
+    }
+    return false;
+  }
+
+  /// Open right now? Null when the hours are not known.
+  bool? get isOpenNow => isOpenAt(DateTime.now());
+
+  static String _clock(int minutes) {
+    final h24 = (minutes ~/ 60) % 24;
+    final m = minutes % 60;
+    final h12 = h24 % 12 == 0 ? 12 : h24 % 12;
+    final suffix = h24 >= 12 ? 'PM' : 'AM';
+    return '$h12:${m.toString().padLeft(2, '0')} $suffix';
+  }
+
+  /// "8:00 AM – 9:00 PM", with the closed days added when there are any.
+  String get hoursLabel {
+    final open = _minutesOf(opensAt);
+    final close = _minutesOf(closesAt);
+    if (open == null || close == null) return 'Hours not available';
+    final range = open == close
+        ? 'Open 24 hours'
+        : '${_clock(open)} – ${_clock(close)}';
+    const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final days = ([...closedDays]..sort())
+        .where((d) => d >= 1 && d <= 7)
+        .map((d) => names[d - 1])
+        .join(', ');
+    return days.isEmpty ? range : '$range · Closed $days';
+  }
 
   /// "₱200 – ₱1,240" when a range is known, otherwise the ₱ level.
   String get priceLabel {
