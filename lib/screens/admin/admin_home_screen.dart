@@ -535,42 +535,6 @@ class _OverviewPageState extends State<_OverviewPage> {
     ];
   }
 
-  /// One-time helper: gives every restaurant without opening hours typical
-  /// hours for its type. Restaurants that already have hours are untouched.
-  Future<void> _fillHours() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Fill default hours?'),
-        content: const Text(
-            'Restaurants that have no opening hours get typical hours for '
-            'their type (for example 8:00 AM to 8:00 PM for a café). '
-            'Restaurants that already have hours are not changed.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Fill')),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    try {
-      final n = await FirebaseService.fillMissingHours();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(n == 0
-              ? 'Every restaurant already has hours.'
-              : 'Default hours added to $n restaurants.')));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Could not save hours: $e')));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final s = _stats;
@@ -689,9 +653,6 @@ class _OverviewPageState extends State<_OverviewPage> {
                   action(Icons.forum_outlined, 'Appeals',
                       'Review appeals from disabled accounts',
                       () => widget.onNavigate(6)),
-                  action(Icons.schedule_outlined, 'Fill default hours',
-                      'Set typical opening hours on restaurants that have none',
-                      _fillHours),
                 ],
               );
             }),

@@ -40,6 +40,14 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
   String? _oldPriceText; // shown when the saved price was not a range (e.g. "₱₱")
   bool _saving = false;
 
+  // Operating hours. Day numbers follow DateTime.weekday: 1 = Mon ... 7 = Sun.
+  static const _dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  TimeOfDay? _opens;
+  TimeOfDay? _closes;
+  bool _open24 = false;
+  final Set<int> _closedDays = {};
+  String? _hoursError;
+
   /// Establishment types used by the app. Keep these identical to the chips
   /// in the onboarding screen, because matching compares the exact text.
   static const _baseTypes = [
@@ -107,6 +115,30 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
     return raw.trim();
   }
 
+  // --- Time helpers ---------------------------------------------------------
+
+  /// "08:00" -> TimeOfDay, or null if it is not a valid time.
+  static TimeOfDay? _parseTime(String? t) {
+    if (t == null) return null;
+    final m = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(t.trim());
+    if (m == null) return null;
+    final h = int.parse(m.group(1)!);
+    final min = int.parse(m.group(2)!);
+    if (h > 23 || min > 59) return null;
+    return TimeOfDay(hour: h, minute: min);
+  }
+
+  static String _two(int n) => n.toString().padLeft(2, '0');
+
+  /// Stored form: "08:00".
+  static String _fmt24(TimeOfDay t) => '${_two(t.hour)}:${_two(t.minute)}';
+
+  /// Shown form: "8:00 AM".
+  static String _fmt12(TimeOfDay t) {
+    final h12 = t.hour % 12 == 0 ? 12 : t.hour % 12;
+    return '$h12:${_two(t.minute)} ${t.hour >= 12 ? 'PM' : 'AM'}';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -134,6 +166,18 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
       } else if (r.priceRange.isNotEmpty) {
         _oldPriceText = r.priceRange;
       }
+
+      // Saved operating hours. The same opening and closing time means the
+      // place is open all day.
+      final o = _parseTime(r.opensAt);
+      final c = _parseTime(r.closesAt);
+      if (o != null && c != null && o == c) {
+        _open24 = true;
+      } else {
+        _opens = o;
+        _closes = c;
+      }
+      _closedDays.addAll(r.closedDays);
     } else {
       // New restaurant: reuse the last price range the admin entered.
       _loadSavedPrice();
@@ -185,10 +229,63 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
     super.dispose();
   }
 
+  Future<void> _pickTime({required bool opening}) async {
+    final initial = (opening ? _opens : _closes) ??
+        (opening
+            ? const TimeOfDay(hour: 8, minute: 0)
+            : const TimeOfDay(hour: 20, minute: 0));
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initial,
+      helpText: opening ? 'Opening time' : 'Closing time',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (opening) {
+        _opens = picked;
+      } else {
+        _closes = picked;
+      }
+      _hoursError = null;
+    });
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     final loc = parseLatLng(_locationCtrl.text);
     if (loc == null) return;
+
+    // Operating hours: both times or none. The same time for both would mean
+    // "open all day", which has its own switch.
+    String? opensText;
+    String? closesText;
+    String? hoursProblem;
+    if (_open24) {
+      opensText = '00:00';
+      closesText = '00:00';
+    } else if (_opens != null && _closes != null) {
+      if (_opens == _closes) {
+        hoursProblem = 'Opening and closing time are the same. '
+            'Use "Open 24 hours" if the place never closes.';
+      } else {
+        opensText = _fmt24(_opens!);
+        closesText = _fmt24(_closes!);
+      }
+    } else if (_opens != null || _closes != null) {
+      hoursProblem = 'Set both the opening and the closing time, or clear both.';
+    } else if (_isEdit &&
+        (widget.restaurant!.opensAt != null || widget.restaurant!.closesAt != null)) {
+      // The admin cleared hours that were saved before: remove them.
+      opensText = '';
+      closesText = '';
+    }
+    if (hoursProblem != null) {
+      setState(() => _hoursError = hoursProblem);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(hoursProblem)));
+      return;
+    }
+    final closed = _closedDays.toList()..sort();
 
     final minPrice = int.parse(_minPriceCtrl.text.trim());
     final maxPrice = int.parse(_maxPriceCtrl.text.trim());
@@ -220,6 +317,9 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
           imageUrl: image.isEmpty ? null : image,
           priceMin: minPrice,
           priceMax: maxPrice,
+          opensAt: opensText,
+          closesAt: closesText,
+          closedDays: closed,
         );
       } else {
         await FirebaseService.addRestaurant(
@@ -236,6 +336,9 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
           imageUrl: image.isEmpty ? null : image,
           priceMin: minPrice,
           priceMax: maxPrice,
+          opensAt: opensText,
+          closesAt: closesText,
+          closedDays: closed,
         );
         // Keep this price range for the next new restaurant.
         await _rememberPrice();
@@ -290,6 +393,140 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
     final n = int.tryParse(s);
     if (n == null || n < 0) return 'Enter a whole number';
     return null;
+  }
+
+  // --- Operating hours UI ---------------------------------------------------
+
+  /// A tap-to-pick field that looks like the other form fields.
+  Widget _timeField({
+    required String label,
+    required TimeOfDay? value,
+    required bool enabled,
+    required VoidCallback onTap,
+    required VoidCallback onClear,
+  }) {
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(12),
+      child: InputDecorator(
+        isEmpty: false,
+        decoration: InputDecoration(
+          labelText: label,
+          enabled: enabled,
+          suffixIcon: (value != null && enabled)
+              ? IconButton(
+                  tooltip: 'Clear',
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: onClear,
+                )
+              : const Icon(Icons.access_time, size: 20),
+        ),
+        child: Text(
+          value == null ? 'Not set' : _fmt12(value),
+          style: TextStyle(color: value == null || !enabled ? AppColors.muted : null),
+        ),
+      ),
+    );
+  }
+
+  String _hoursPreview() {
+    String base;
+    if (_open24) {
+      base = 'Open 24 hours';
+    } else if (_opens != null && _closes != null) {
+      base = '${_fmt12(_opens!)} – ${_fmt12(_closes!)}';
+      final o = _opens!.hour * 60 + _opens!.minute;
+      final c = _closes!.hour * 60 + _closes!.minute;
+      if (c < o) base += ' (closes after midnight)';
+    } else {
+      return 'No hours set. Diners will see "Hours not available" for this place.';
+    }
+    if (_closedDays.isNotEmpty) {
+      final days = (_closedDays.toList()..sort()).map((d) => _dayNames[d - 1]).join(', ');
+      base += ' · Closed $days';
+    }
+    return 'Shown in the app as: $base';
+  }
+
+  Widget _hoursSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Operating hours',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5)),
+        const SizedBox(height: 4),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Open 24 hours'),
+          value: _open24,
+          onChanged: (v) => setState(() {
+            _open24 = v;
+            _hoursError = null;
+          }),
+        ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: _timeField(
+                label: 'Opens',
+                value: _opens,
+                enabled: !_open24,
+                onTap: () => _pickTime(opening: true),
+                onClear: () => setState(() {
+                  _opens = null;
+                  _hoursError = null;
+                }),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _timeField(
+                label: 'Closes',
+                value: _closes,
+                enabled: !_open24,
+                onTap: () => _pickTime(opening: false),
+                onClear: () => setState(() {
+                  _closes = null;
+                  _hoursError = null;
+                }),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        const Text('Closed on',
+            style: TextStyle(fontSize: 12.5, color: AppColors.muted)),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (var d = 1; d <= 7; d++)
+              FilterChip(
+                label: Text(_dayNames[d - 1]),
+                selected: _closedDays.contains(d),
+                onSelected: (on) => setState(() {
+                  if (on) {
+                    _closedDays.add(d);
+                  } else {
+                    _closedDays.remove(d);
+                  }
+                }),
+              ),
+          ],
+        ),
+        if (_hoursError != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(_hoursError!,
+                style: TextStyle(color: Colors.red.shade700, fontSize: 12.5)),
+          ),
+        const SizedBox(height: 8),
+        Text(_hoursPreview(),
+            style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+      ],
+    );
   }
 
   @override
@@ -408,7 +645,9 @@ class _AdminAddRestaurantScreenState extends State<AdminAddRestaurantScreen> {
                   decoration: const InputDecoration(labelText: 'Address'),
                   validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 20),
+                _hoursSection(),
+                const SizedBox(height: 20),
                 TextFormField(
                   controller: _descriptionCtrl,
                   decoration: const InputDecoration(labelText: 'Short description'),

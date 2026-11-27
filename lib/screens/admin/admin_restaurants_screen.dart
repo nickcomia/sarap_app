@@ -9,6 +9,8 @@ import 'admin_menu_items_screen.dart';
 /// Lists every restaurant straight from Firestore, sorted A to Z by name.
 /// Each row can be opened (menu items), edited, or hidden from / shown in
 /// the customer app. New restaurants are added from the sidebar.
+/// Each row also shows the opening hours, or "Hours not set" so the
+/// restaurants that still need hours are easy to spot.
 class AdminRestaurantsScreen extends StatefulWidget {
   const AdminRestaurantsScreen({super.key});
 
@@ -156,6 +158,19 @@ class _AdminRestaurantsScreenState extends State<AdminRestaurantsScreen> {
                                             : '${r.type} • Hidden from the app',
                                         style: const TextStyle(
                                             color: AppColors.muted, fontSize: 12.5),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        r.hasHours ? r.hoursLabel : 'Hours not set',
+                                        style: TextStyle(
+                                          color: r.hasHours
+                                              ? AppColors.muted
+                                              : AppColors.primaryDark,
+                                          fontSize: 12.5,
+                                          fontWeight: r.hasHours
+                                              ? FontWeight.w400
+                                              : FontWeight.w700,
+                                        ),
                                       ),
                                     ],
                                   ),
